@@ -84,6 +84,6 @@ See the `refactoring` branch for ongoing improvements:
 
 ---
 
-Generated: 2025-10-14 16:42:55
+Generated: 2025-10-14 16:43:23
 Baseline: v0.1-baseline
 
