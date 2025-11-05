@@ -1,4 +1,56 @@
-# MainCleanupScript.ps1
+<#
+.SYNOPSIS
+    Executes system cleanup tasks with configurable thoroughness levels.
+
+.DESCRIPTION
+    MainCleanupScript.ps1 performs various system cleanup operations including recycle bin,
+    temporary files, DISM cleanup, and CCM cache cleanup. The script supports different
+    thoroughness levels and can resume from the last completed step. Cleanup tasks are
+    executed as background jobs with configurable timeouts based on the thoroughness level.
+
+.PARAMETER Thoroughness
+    Specifies the level of cleanup to perform. Valid values are:
+    - fast: Quick cleanup (15 min timeout) - Recycle bin and CCM cache only
+    - normal: Standard cleanup (60 min timeout) - Adds temporary files cleanup
+    - thorough: Deep cleanup (6 hour timeout) - Adds DISM cleanup
+    - unrestricted: Comprehensive cleanup (no timeout) - All cleanup operations
+    Default value is "normal".
+
+.PARAMETER Resume
+    When specified, the script will resume from the last completed cleanup step.
+    This is useful if a previous cleanup operation was interrupted or timed out.
+
+.EXAMPLE
+    .\MainCleanupScript.ps1
+    Runs the cleanup script with default (normal) thoroughness level.
+
+.EXAMPLE
+    .\MainCleanupScript.ps1 -Thoroughness fast
+    Performs a quick cleanup including recycle bin and CCM cache with a 15-minute timeout.
+
+.EXAMPLE
+    .\MainCleanupScript.ps1 -Thoroughness thorough
+    Performs a deep cleanup including DISM with a 6-hour timeout.
+
+.EXAMPLE
+    .\MainCleanupScript.ps1 -Resume
+    Resumes cleanup from the last completed step using normal thoroughness.
+
+.NOTES
+    Author: System Administrator
+    Dependencies: Requires CleanupFunctions.psm1 module in the same directory
+    Log Location: C:\PIMCO\Logs
+    Registry: Stores cleanup state in registry when disk space is below 15%
+
+.LINK
+    CleanupFunctions.psm1
+#>
+
+param (
+    [ValidateSet("fast", "normal", "thorough", "unrestricted")]
+    [string]$Thoroughness = "normal",
+    [switch]$Resume
+)
 
 # Import the cleanup module
 $modulePath = ".\CleanupFunctions.psm1"
@@ -9,12 +61,6 @@ else {
     Write-Error "Module path '$modulePath' not found."
     exit
 }
-
-param (
-    [ValidateSet("fast", "normal", "thorough", "unrestricted")]
-    [string]$Thoroughness = "normal",
-    [switch]$Resume
-)
 
 $StartTime = Get-Date
 $LogPath = "C:\PIMCO\Logs"

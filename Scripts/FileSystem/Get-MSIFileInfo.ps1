@@ -1,6 +1,50 @@
+<#
+.SYNOPSIS
+    Extracts properties and metadata from MSI (Microsoft Installer) files.
+
+.DESCRIPTION
+    This function queries MSI installer files to extract properties such as product name,
+    version, manufacturer, and other metadata. It uses the Windows Installer COM object
+    to read the MSI database and can optionally apply MST (transform) files. Supports
+    both public and private property types.
+
+.PARAMETER FilePath
+    The path to the MSI file(s) to query. Supports pipeline input and multiple files.
+    Must be a valid path to an existing MSI file.
+
+.PARAMETER Transform
+    Optional path to an MST (transform) file to apply to the MSI database before
+    querying properties. Transforms modify the MSI behavior or properties.
+
+.PARAMETER PropertyType
+    Specifies whether to query "Public" or "Private" properties from the MSI.
+    Public properties are typically user-configurable, while private properties
+    are internal to the installer.
+
+.EXAMPLE
+    Get-MSIProperties -FilePath "C:\Installers\app.msi"
+    Extracts all properties from the specified MSI file.
+
+.EXAMPLE
+    Get-ChildItem "C:\Installers\*.msi" | Get-MSIProperties -PropertyType Public
+    Queries public properties from all MSI files in the Installers directory.
+
+.EXAMPLE
+    Get-MSIProperties -FilePath "C:\app.msi" -Transform "C:\custom.mst"
+    Extracts properties after applying a transform file to the MSI database.
+
+.NOTES
+    Author: System Administrator
+    Purpose: MSI file analysis and metadata extraction
+    Requires: Windows Installer COM object (WindowsInstaller.Installer)
+    Dependencies: COM interop for MSI database access
+
+.LINK
+    about_Windows_Installer
+#>
 #Region Get-MSIProperties Function
 function Get-MSIProperties {
-  
+
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $True,
