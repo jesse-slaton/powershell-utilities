@@ -1,19 +1,40 @@
 Function Reset-AclInheritance {
     <#
     .SYNOPSIS
-    Resets all non-inherited ACEs and re-enables inheritance on an object's ACL. Will recursively apply these changes
-    to any of the objects children if it's a container.
+    Resets all non-inherited ACEs and re-enables inheritance on an object's ACL.
+
+    .DESCRIPTION
+    This function removes all non-inherited Access Control Entries (ACEs) from a file or folder's
+    Access Control List (ACL) and re-enables inheritance. If the target is a container (folder),
+    the function will recursively apply these changes to all child objects. This is equivalent to
+    running 'icacls.exe /reset /t' but using PowerShell .NET classes for better error handling
+    and integration.
 
     .PARAMETER Path
-    [String] The path to the object to reset.
+    The path to the file or folder to reset. This parameter is mandatory.
+    Supports both file system paths and registry paths.
 
     .EXAMPLE
     Reset-AclInheritance -Path "C:\temp"
+    Resets ACL inheritance for the C:\temp folder and all its contents.
+
+    .EXAMPLE
+    Reset-AclInheritance -Path "C:\MyFile.txt" -Verbose
+    Resets ACL inheritance for a single file with detailed progress output.
+
+    .EXAMPLE
+    Reset-AclInheritance -Path "C:\SecureFolder" -WhatIf
+    Shows what would happen if you reset the ACL without actually making changes.
 
     .NOTES
-    This is similar to running the 'icacls.exe <FileName> /reset /t' operation but using .NET classes to run the
-    operation instead. It is recommended that you have explicitly enabled the SeBackupPrivileges and SeRestorePrivilege
-    privileges so that we can read and write the security descriptor for any object.
+    Author: System Administrator
+    Purpose: ACL management and security remediation
+    Requires: Administrator privileges, SeBackupPrivilege and SeRestorePrivilege recommended
+    Similar to: icacls.exe <Path> /reset /t
+
+    .LINK
+    Get-Acl
+    Set-Acl
     #>
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(

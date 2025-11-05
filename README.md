@@ -41,7 +41,7 @@ powershell-utilities/
 Install-Module PSScriptAnalyzer, Pester -Scope CurrentUser -Force
 
 # For specific scripts, you may also need:
-# Install-Module ActiveDirectory, LidarrPS, AWSPowerShell -Scope CurrentUser
+# Install-Module ActiveDirectory, AWSPowerShell -Scope CurrentUser
 ```
 
 ### External Repositories

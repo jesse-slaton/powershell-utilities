@@ -3,15 +3,39 @@
 Switches an Office Click-to-Run install from its existing channel to a new channel.
 
 .DESCRIPTION
-This PowerShell script switches the Office Click-to-Run installation to a new update channel by updating the CDNBaseUrl registry value and running the OfficeC2RClient.exe with the appropriate arguments to apply the changes.
+This PowerShell script switches the Office Click-to-Run installation to a new update channel
+by updating the CDNBaseUrl registry value and running the OfficeC2RClient.exe with the
+appropriate arguments to apply the changes. The script tests connectivity to the Office CDN,
+updates registry settings, and forces an Office update from the new channel.
 
 .PARAMETER OfficeChannel
-Specifies the new update channel for Office. Valid values are "Current", "MonthlyEnterprise", and "SemiAnnual". Default value is "SemiAnnual".
+Specifies the new update channel for Office. Valid values are:
+- Current: Latest features as soon as they're available
+- MonthlyEnterprise: Monthly feature updates on a predictable schedule
+- SemiAnnual: Feature updates twice per year
+- Beta: Early preview builds for testing
+Default value is "SemiAnnual".
+
+.EXAMPLE
+.\SwitchOfficeC2RChannel.ps1
+Switches Office to the SemiAnnual channel (default) and applies the update.
+
+.EXAMPLE
+.\SwitchOfficeC2RChannel.ps1 -OfficeChannel Current
+Switches Office to the Current channel for immediate feature updates.
+
+.EXAMPLE
+.\SwitchOfficeC2RChannel.ps1 -OfficeChannel MonthlyEnterprise -Verbose
+Switches Office to the Monthly Enterprise channel with verbose output showing progress.
 
 .NOTES
 Author: Jesse Slaton
 Date: 2023-03-31
+Requires: Administrator privileges
+Exit Codes: 0=Success, 1601=Update in progress, 1704=Installation suspended, 3010=Reboot required
 
+.LINK
+https://docs.microsoft.com/en-us/deployoffice/overview-update-channels
 #>
 
 param(
