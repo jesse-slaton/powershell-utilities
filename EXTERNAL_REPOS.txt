@@ -3,6 +3,7 @@
 This file lists external repositories that need to be forked/starred on GitHub.
 
 Generated: 2025-10-14 16:43:25
+Updated: 2025-10-27
 
 ## Action Items
 
@@ -22,11 +23,32 @@ Generated: 2025-10-14 16:43:25
 - Status: [ ] Forked [ ] Starred
 - Local Path: D:\dev\repos\Windows-Secure-Host-Baseline
 
+## External PowerShell Script Sources
+
+These scripts were previously included but have been archived. Reference from original sources:
+
+### BornToBeRoot/PowerShell
+- Original: https://github.com/BornToBeRoot/PowerShell
+- Status: [ ] Starred
+- Scripts Used: Convert-Subnetmask.ps1
+- Notes: Excellent network utilities collection
+
+### rnemeth90 (Ryan Nemeth)
+- GitHub: https://github.com/rnemeth90
+- Blog: http://www.geekyryan.com
+- Status: [ ] Starred
+- Scripts Used: Reset-WindowsUpdate.ps1
+- Notes: System administration utilities
+
+### Simon Wåhlin
+- Blog: http://blog.simonw.se
+- Scripts Used: Invoke-VBScript.ps1
+- Notes: PowerShell/VBScript integration tools
+
 ## Required PowerShell Modules
 
 See EXTERNAL_DEPENDENCIES.md for full list of required modules:
 - ActiveDirectory
-- LidarrPS
 - AWSPowerShell
 - TaniumClient
 - GroupPolicy
