@@ -7,6 +7,9 @@
 This repository was created from a reorganization of a monolithic PowerShell script collection.
 Scripts are being refactored and improved according to the standards in DEV_ENVIRONMENT.md.
 
+> **Note**: Path Commander (the Windows PATH TUI manager) has been moved to its own repository:
+> https://github.com/jesse-slaton/cli-tools
+
 ## Purpose
 
 General-purpose PowerShell utilities for system administration
