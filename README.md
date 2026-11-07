@@ -2,7 +2,7 @@
 
 ## Status
 
-🚧 **Initial import - reorganization in progress** 🚧
+**Initial import - reorganization in progress**
 
 This repository was created from a reorganization of a monolithic PowerShell script collection.
 Scripts are being refactored and improved according to the standards in DEV_ENVIRONMENT.md.
@@ -16,10 +16,10 @@ General-purpose PowerShell utilities for system administration
 
 ## Current State
 
-- ✅ Initial import complete
-- 🔄 Refactoring in progress
-- ⏳ Documentation being added
-- ⏳ Tests being written
+- [x] Initial import complete
+- [ ] Refactoring in progress
+- [ ] Documentation being added
+- [ ] Tests being written
 
 ## Structure
 
