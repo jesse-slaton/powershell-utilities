@@ -40,14 +40,14 @@ The repository owner requires assistance with:
 
 ## Current Work (As of 2025-10-15)
 - **Issue 5**: Create TUI similar to UniGetUI - COMPLETED
-  - ✅ Discover tab: Search and install packages
-  - ✅ Updates tab: View and apply available updates
-  - ✅ Installed tab: Manage installed packages
-  - ✅ Settings tab: Configure sources and options
-  - ✅ Keyboard navigation and controls
-  - ✅ Support for winget and PowerShell Gallery
-  - ⏳ Bulk operations (future enhancement)
-  - ⏳ Elevation support (future enhancement)
+  - [x] Discover tab: Search and install packages
+  - [x] Updates tab: View and apply available updates
+  - [x] Installed tab: Manage installed packages
+  - [x] Settings tab: Configure sources and options
+  - [x] Keyboard navigation and controls
+  - [x] Support for winget and PowerShell Gallery
+  - [ ] Bulk operations (future enhancement)
+  - [ ] Elevation support (future enhancement)
 
 ## Active Issues
 1. Issue #1: Write Pester tests for all scripts
