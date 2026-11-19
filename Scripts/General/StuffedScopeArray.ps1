@@ -1,15 +1,21 @@
 <#
 .SYNOPSIS
-    Sensor that looks up this computer's location from its primary IPv4 network in a local scope list.
+    Sensor that looks up this computer's location from its lowest-metric adapter's network in a local scope list.
 
 .DESCRIPTION
     If C:\DesktopSupportTools\ComputerLocations.txt exists, the script reads it as a
-    semicolon-delimited CSV with ScopeID, Location and Specific columns. It picks the
-    primary adapter from Win32_NetworkAdapterConfiguration: IP-enabled, description not
-    matching "loop" or "Hyper", address not IPv6 or 169.*, lowest GatewayCostMetric.
-    It computes the network address (IP AND subnet mask), keeps the rows whose ScopeID
-    matches that address (regular-expression -match), and writes one line built from
-    the first matching row, with quotes removed:
+    semicolon-delimited CSV with ScopeID, Location and Specific columns. It picks one
+    adapter from Win32_NetworkAdapterConfiguration: IP-enabled, description not
+    matching "loop" or "Hyper", sorted by GatewayCostMetric, first one kept. The
+    address checks (-notmatch ':' and -notlike '169.*') run against the IPAddress
+    array, so they return the non-matching elements instead of rejecting the adapter:
+    an adapter passes if it has at least one address without ':' and at least one
+    address not like 169.*. When the kept adapter has more than one address (for
+    example IPv4 and IPv6), IPAddress and IPSubnet are arrays and the [ipaddress]
+    casts fail with an error. For a single-address adapter it computes the network
+    address (IP AND subnet mask), keeps the rows whose ScopeID matches that address
+    (regular-expression -match), and writes one line built from the first matching
+    row, with quotes removed:
 
         <Network>|<Location>|<Specific>
 
