@@ -21,7 +21,7 @@
     written but do not stop the script. Changes system state and deletes user data.
 
 .EXAMPLE
-    .\Uninstall OneDrive-Package.ps1
+    & '.\Uninstall OneDrive-Package.ps1'
 
     Removes OneDrive for the current user and computer.
 

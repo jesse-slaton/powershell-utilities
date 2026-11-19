@@ -9,8 +9,8 @@
     and writes status messages with Write-Host.
 
     It then lists every logical disk that is not a network drive (Win32_LogicalDisk,
-    DriveType <> 4) and recursively searches each one for *.pst files, ignoring access
-    errors. For each drive it outputs one object with Name (full path), LastWriteTime and
+    DriveType <> 4) and recursively searches each one for *.pst files with
+    -ErrorAction Ignore. For each drive it outputs one object with Name (full path), LastWriteTime and
     Size (formatted, for example "1.25 GB"). Only the last .pst found on a drive is kept,
     and a drive with no .pst repeats the object from the previous drive, so the list is
     not complete.

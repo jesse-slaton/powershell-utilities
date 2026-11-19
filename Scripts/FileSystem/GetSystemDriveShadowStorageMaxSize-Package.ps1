@@ -12,8 +12,8 @@
 
         <MaxSpacePercentOfVolume>|<MaxSpaceGB>
 
-    Both values are rounded to two decimals. If a query fails, writes the error "Could
-    not determine the Shadow Storage MaxSpace". Read-only.
+    Both values are rounded to two decimals. If a terminating error is thrown in that
+    block, writes the error "Could not determine the Shadow Storage MaxSpace". Read-only.
 
 .EXAMPLE
     .\GetSystemDriveShadowStorageMaxSize-Package.ps1
