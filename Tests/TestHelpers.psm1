@@ -52,20 +52,40 @@ function Resolve-ScriptUnderTest {
     .PARAMETER Name
         A test file path or name (Foo.Tests.ps1), or a bare script name (Foo).
 
+    .PARAMETER Category
+        Folder that holds the script, relative to the repository root, such as
+        'Scripts/Network' or 'Modules'. A bare category name such as 'Network' means
+        'Scripts/Network'. Use it when more than one tracked script has the same name.
+
     .EXAMPLE
         $scriptPath = Resolve-ScriptUnderTest -Name $PSCommandPath
+
+    .EXAMPLE
+        $scriptPath = Resolve-ScriptUnderTest -Name $PSCommandPath -Category ActiveDirectory
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$Name
+        [string]$Name,
+
+        [string]$Category
     )
 
     $baseName = [System.IO.Path]::GetFileName($Name) -replace '\.Tests\.ps1$', '' -replace '\.psm?1$', ''
     $found = @(Get-TrackedScript | Where-Object { [System.IO.Path]::GetFileNameWithoutExtension($_.Name) -eq $baseName })
 
-    if ($found.Count -eq 0) { throw "No script named '$baseName' under Scripts/ or Modules/." }
-    if ($found.Count -gt 1) { throw "More than one script named '$baseName': $($found.FullName -join ', ')" }
+    if ($Category) {
+        $folder = $Category.Trim('/', '\') -replace '\\', '/'
+        if ($folder -notmatch '^(Scripts|Modules)(/|$)') { $folder = "Scripts/$folder" }
+        $found = @($found | Where-Object {
+                $relative = $_.FullName.Substring($script:RepoRoot.Length + 1) -replace '\\', '/'
+                $relative -like "$folder/*"
+            })
+    }
+
+    $where = if ($Category) { "under '$Category'" } else { 'under Scripts/ or Modules/' }
+    if ($found.Count -eq 0) { throw "No script named '$baseName' $where." }
+    if ($found.Count -gt 1) { throw "More than one script named '$baseName': $($found.FullName -join ', '). Pass -Category to choose one." }
     $found[0].FullName
 }
 
