@@ -37,7 +37,9 @@ function Remove-ServiceNowTableEntry{
 	#Get credential and ServiceNow REST URL
     if ($Connection -ne $null)
     {
-        $SecurePassword = ConvertTo-SecureString $Connection.Password -AsPlainText -Force
+        # Accept a SecureString password as-is; convert a plain-text one (kept for existing callers)
+        # without ConvertTo-SecureString -AsPlainText.
+        $SecurePassword = if ($Connection.Password -is [securestring]) { $Connection.Password } else { (New-Object System.Net.NetworkCredential('', [string]$Connection.Password)).SecurePassword }
         $ServiceNowCredential = New-Object System.Management.Automation.PSCredential ($Connection.Username, $SecurePassword)
         $ServiceNowURL = 'https://' + $Connection.ServiceNowUri + '/api/now/v1'
         
