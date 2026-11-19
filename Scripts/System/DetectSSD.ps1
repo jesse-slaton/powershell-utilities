@@ -1,4 +1,29 @@
-﻿$Source = @"
+﻿<#
+.SYNOPSIS
+    Compiles a C# helper class for detecting whether a physical drive is an SSD.
+
+.DESCRIPTION
+    Loads C# source into the session with Add-Type, defining the class
+    DetectSsd.Program. The class contains two checks against \\.\PhysicalDriveN:
+    IOCTL_STORAGE_QUERY_PROPERTY (seek penalty) and an ATA IDENTIFY DEVICE pass-through
+    (nominal media rotation rate), plus an interactive console Main method that asks for
+    a drive number and a method.
+
+    The script itself only compiles the type. It does not call Main or either check,
+    and all of the class members are private, so nothing can be run from PowerShell
+    without changing the code. Produces no output and changes nothing on the system.
+
+.EXAMPLE
+    .\DetectSSD.ps1
+
+    Compiles the DetectSsd.Program type into the current session. No output.
+
+.NOTES
+    Requires the C# compiler used by Add-Type (available in Windows PowerShell 5.1 and
+    PowerShell 7). The rotation-rate check in the C# code opens the drive for read/write
+    and needs administrator rights; the seek-penalty check does not.
+#>
+$Source = @"
 using Microsoft.Win32.SafeHandles;
 using System;
 using System.Runtime.InteropServices;
