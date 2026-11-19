@@ -1,3 +1,38 @@
+<#
+.SYNOPSIS
+    Lists Office COM add-ins from the registry, one pipe-delimited line each.
+
+.DESCRIPTION
+    Reads the Platform value (x64 or x86) of the Click-to-Run configuration key
+    HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration to choose the machine-wide
+    Office key (HKLM:\SOFTWARE\Microsoft\Office for x64,
+    HKLM:\SOFTWARE\Wow6432Node\Microsoft\Office for x86). It then recursively searches
+    HKCU:\SOFTWARE\Microsoft\Office and that machine-wide key for keys whose path
+    contains 'Addins' and that have at least one value, and writes one line per add-in:
+
+        <Name>|<Product>|<FriendlyName>|<LoadBehavior>|<Load Behavior Description>
+
+    Name is the add-in key name, Product is the registry path segment three levels up
+    (for example Outlook), and Load Behavior Description translates the LoadBehavior
+    number to text. Entries without a LoadBehavior value are left out. Results are
+    sorted and de-duplicated by Product and Name within each hive. Quotes are removed
+    and the CSV header line is dropped. Read-only.
+
+    If Platform is missing or has another value, no machine-wide key is chosen and the
+    machine-wide search does not run as intended.
+
+.EXAMPLE
+    .\Get-OfficeCOMAddins-Sensor.ps1
+
+    <AddinName>|Outlook|<FriendlyName>|3|Loaded. Load at startup.
+
+.NOTES
+    Written as a Tanium sensor for Click-to-Run Office installations. The ClickToRun
+    key check at the top does not stop the script when the key is missing (Test-Path
+    returns False instead of throwing). HKCU is the hive of the account that runs the
+    script; under the Tanium Client (Local System) that is not the logged-on user's
+    hive. No admin rights needed to read these keys.
+#>
 $CTRPath = "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
 [hashtable]$LoadBehaviorHash = @{
     0  = "Unloaded. Do not load automatically."
