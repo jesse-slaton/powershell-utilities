@@ -30,8 +30,8 @@
 
 .NOTES
     Needs network access to the NCSI probe hosts (plain HTTP). Requires the DnsClient
-    module (Resolve-DnsName, Windows 8 / Server 2012 or later) and uses Get-WmiObject,
-    so Windows PowerShell 5.1 only. Invoke-WebRequest is called without
+    module (Resolve-DnsName, Windows 8 / Server 2012 or later). Uses the CIM cmdlets;
+    runs on Windows PowerShell 5.1 and PowerShell 7. Invoke-WebRequest is called without
     -UseBasicParsing. No admin rights needed.
 #>
 $NCSIProbeHost = (Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\NlaSvc\Parameters\Internet).ActiveWebProbeHost
@@ -66,7 +66,7 @@ catch {
 }
 
 Try {
-    $Networks = Get-WmiObject Win32_NetworkAdapterConfiguration `
+    $Networks = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration `
         -ErrorAction Stop | Where-Object { $_.IPEnabled }
 }
 Catch {

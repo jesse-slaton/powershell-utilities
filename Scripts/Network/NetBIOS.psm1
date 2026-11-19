@@ -6,7 +6,7 @@ Function Test-IsDomainJoined() {
     [OutputType([bool])]
     Param()
     #todo: function documentation
-    $computer = Get-WmiObject -Class 'Win32_ComputerSystem' | Select-Object PartOfDomain
+    $computer = Get-CimInstance -ClassName 'Win32_ComputerSystem' | Select-Object PartOfDomain
 
     return $computer.PartOfDomain
 }

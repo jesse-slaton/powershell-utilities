@@ -28,7 +28,8 @@
 
 .NOTES
     Requires C:\DesktopSupportTools\ComputerLocations.txt to be staged on the computer.
-    Uses Get-WmiObject, so Windows PowerShell 5.1 only. No admin rights needed.
+    Uses the CIM cmdlets; runs on Windows PowerShell 5.1 and PowerShell 7. No admin
+    rights needed.
 #>
 
 $CSV = 'C:\DesktopSupportTools\ComputerLocations.txt'
@@ -36,7 +37,7 @@ $CSV = 'C:\DesktopSupportTools\ComputerLocations.txt'
 If (Test-Path -Path $CSV) {
     $ScopeArray = (Import-Csv -Path $CSV -Delimiter ';')
     $Query = "Select Description, IPAddress, IPEnabled, IPSubnet, GatewayCostMetric from Win32_NetworkAdapterConfiguration Where IPEnabled=True"
-    $IPAddresses = Get-WmiObject -Query $Query | `
+    $IPAddresses = Get-CimInstance -Query $Query | `
         Where-Object {
         $_.IPEnabled -eq $True -and `
             $_.Description -notmatch 'loop|Hyper' -and `
