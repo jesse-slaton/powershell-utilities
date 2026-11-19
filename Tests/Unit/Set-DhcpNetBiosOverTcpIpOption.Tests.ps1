@@ -1,15 +1,15 @@
 #Requires -Version 5.1
-# Pester tests for CHG0000000_DisableNetBiosOverTCPIP.ps1
+# Pester tests for Set-DhcpNetBiosOverTcpIpOption.ps1
 
 BeforeAll {
     $scriptPath = $PSScriptRoot.Replace('\Tests', '')
-    . (Join-Path $scriptPath 'CHG0000000_DisableNetBiosOverTCPIP.ps1')
+    . (Join-Path $scriptPath 'Set-DhcpNetBiosOverTcpIpOption.ps1')
 }
 
-Describe "CHG0000000_DisableNetBiosOverTCPIP.ps1 Tests" {
+Describe "Set-DhcpNetBiosOverTcpIpOption.ps1 Tests" {
     Context "Script Loading" {
         It "Should load without errors" {
-            { . (Join-Path $PSScriptRoot.Replace('\Tests', '') 'CHG0000000_DisableNetBiosOverTCPIP.ps1') } | Should -Not -Throw
+            { . (Join-Path $PSScriptRoot.Replace('\Tests', '') 'Set-DhcpNetBiosOverTcpIpOption.ps1') } | Should -Not -Throw
         }
     }
 

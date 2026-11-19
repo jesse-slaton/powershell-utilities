@@ -1,5 +1,9 @@
+param(
+    # Folder used for the (commented-out) computer list CSV. Defaults to the current user's Downloads folder.
+    [string]$LogSavePath = (Join-Path $env:USERPROFILE 'Downloads')
+)
+
 $logpath = "DesktopSupportTools\Logs"
-$logsavepath = "C:\Users\jdoe\OneDrive - Contoso Insurance\Downloads\"
 $computers = 'VDI-X0001'
 #$computers = Import-CSV -Path "$logsavepath\afclientPCs.csv"
 

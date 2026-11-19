@@ -1,4 +1,4 @@
-# CHG0000000_DisableNetBiosOverTCPIP.ps1
+# Set-DhcpNetBiosOverTcpIpOption.ps1
 
 ## Status
 
