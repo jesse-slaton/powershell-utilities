@@ -14,7 +14,6 @@ powershell-utilities/
   Scripts/       # Scripts grouped by category
   Modules/       # PowerShell modules
   Tests/         # Pester tests
-  docs/          # Documentation
 ```
 
 ## Owner Requirements
