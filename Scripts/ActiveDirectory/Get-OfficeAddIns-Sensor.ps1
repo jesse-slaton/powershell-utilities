@@ -1,3 +1,36 @@
+<#
+.SYNOPSIS
+    Lists Office add-ins registered in the registry, one pipe-delimited line each.
+
+.DESCRIPTION
+    Searches the Addins keys under HKCU:\SOFTWARE\Microsoft\Office\*,
+    HKLM:\SOFTWARE\Microsoft\Office\* and HKLM:\SOFTWARE\Wow6432Node\Microsoft\Office\*
+    and reads the values of every key below them. For each add-in it builds:
+
+        <Hive>|<Product>|<Architecture>|<Name>|<FriendlyName>|<LoadBehavior>
+
+    Hive is User or Machine, Product is the fifth segment of the registry path (the
+    Office application, for example Excel; for Wow6432Node keys that segment is
+    'Office' instead), Architecture is 32-bit for Wow6432Node keys and 64-bit
+    otherwise, Name is the add-in key name, and LoadBehavior is the LoadBehavior value
+    translated to text (for example "Load at startup (Loaded)"). Add-ins are
+    de-duplicated by Name across all three locations, add-ins whose LoadBehavior is
+    missing or not in the translation table are left out, quotes are removed, and the
+    header line is dropped. The lines are written sorted. If nothing is found the
+    script writes nothing. Read-only.
+
+.EXAMPLE
+    .\Get-OfficeAddIns-Sensor.ps1
+
+    Machine|Outlook|64-bit|<AddinName>|<FriendlyName>|Load at startup (Loaded)
+
+.NOTES
+    Written as a Tanium sensor. The ClickToRun Configuration key check at the top does
+    not stop the script when the key is missing (Test-Path returns False instead of
+    throwing). HKCU is the hive of the account that runs the script; under the Tanium
+    Client (Local System) that is not the logged-on user's hive. No admin rights needed
+    to read these keys.
+#>
 $ClicktoRunPath = 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration'
 $HKCUBasePath = "HKCU:\SOFTWARE\Microsoft\Office"
 $HKLMBasePath = "HKLM:\SOFTWARE\Microsoft\Office"
