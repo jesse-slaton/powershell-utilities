@@ -1,3 +1,31 @@
+<#
+.SYNOPSIS
+    Outputs the Microsoft 365 Apps (Office Click-to-Run) update channel name.
+
+.DESCRIPTION
+    Opens the 64-bit view of HKLM and reads the CDNBaseUrl value from
+    SOFTWARE\Microsoft\Office\ClickToRun\Configuration, then outputs a channel name as a
+    string: Monthly Enterprise Channel, Current Channel, Current Channel (Preview),
+    Semi-Annual Enterprise Channel, Semi-Annual Enterprise Channel (Preview) or Beta
+    Channel. Any other URL is output as "Unknown Channel - CDNBaseUrl: <url>".
+
+    When the Configuration key does not exist the script outputs
+    "Office 365 is not installed or the registry path is incorrect.", and an exception is
+    output as the string "An error occurred: <message>". Read-only. The script defines
+    the Get-Office365Channel function and calls it once.
+
+.EXAMPLE
+    .\Get-Office365Channel.ps1
+
+    Monthly Enterprise Channel
+
+.NOTES
+    None. Reads HKLM without administrator rights. Uses the 64-bit registry view, so the
+    result is the same from 32-bit and 64-bit PowerShell on 64-bit Windows.
+    GetOffice365Channel-Package.ps1 does the same lookup and also knows DevMain Channel.
+#>
+
+
 # Function to get the Office 365 Channel
 function Get-Office365Channel {
     try {
