@@ -1,47 +1,133 @@
 ﻿#Requires -Version 3.0
 <#
-
 .SYNOPSIS
-This PowerShell function gets information about the monitors attached to any computer.
-It uses EDID information provided by WMI. If this value is not specified it pulls the
-monitors of the computer that the script is being run on.
+    Reports the monitors attached to one or more computers, from the EDID data in WMI.
 
 .DESCRIPTION
-The function begins by looping through each computer specified. For each computer it
-gets a list of monitors. It then gets all of the necessary data from each monitor object
-and converts and cleans the data and places it in a custom PSObject. It then adds the
-data to an array. At the end the array is displayed.
+    For each computer, reads the WmiMonitorID, WmiMonitorBasicDisplayParams,
+    WmiMonitorConnectionParams and WmiMonitorListedSupportedSourceModes classes in the
+    root\WMI namespace, and reports each monitor's manufacturer, model, serial number,
+    week and year of manufacture, connection type, diagonal size in inches, and maximum
+    resolution. Three-letter EDID manufacturer codes are translated with a built-in
+    table; if the CSV named by -ManufacturerCsvPath exists, its entries are added to
+    (and override) the built-in table.
+
+    Two output formats:
+    - Object (default): one object per monitor. A Computer property is added when more
+      than one computer is queried.
+    - Delimited: one pipe-delimited line per monitor, written to the host, for use as a
+      deployment-tool sensor:
+      Manufacturer|Model|SerialNumber|Week|Year|Connection|Size|MaxResolution|InstanceName
+
+    This script replaces the former Get-AttachedMonitorInfo_-Sensor.ps1; run it with
+    -OutputFormat Delimited for that script's output.
 
 .PARAMETER ComputerName
-Use this to specify the computer(s) which you'd like to retrieve information about
-monitors from.
+    Computers to query. Defaults to the local computer.
+
+.PARAMETER OutputFormat
+    Object (default) returns objects. Delimited writes one pipe-delimited line per
+    monitor, the format of the former Get-AttachedMonitorInfo_-Sensor.ps1.
+
+.PARAMETER ManufacturerCsvPath
+    Optional CSV of EDID manufacturer codes with '#Fields:ID' and 'Manufacturer'
+    columns. Used only when the file exists. Defaults to
+    C:\DesktopSupportTools\Dictionaries\edid_manufacturers.csv.
 
 .EXAMPLE
-PS C:/> Get-AttachedMonitorInfo.ps1
+    .\Get-AttachedMonitorInfo-Sensor.ps1
 
-Manufacturer  : HP
-Model         : HP E243i
-SerialNumber  : CNK7290KPM
-Week          : 29
-Year          : 2017
-Connection    : Displayport
-Size          : 24
-MaxResolution : 1920 x 1200
+    Manufacturer  : HP
+    Model         : HP E243i
+    SerialNumber  : CNK7290KPM
+    Week          : 29
+    Year          : 2017
+    Connection    : Displayport
+    Size          : 24
+    MaxResolution : 1920x1200
 
+.EXAMPLE
+    .\Get-AttachedMonitorInfo-Sensor.ps1 -OutputFormat Delimited
+
+    HP|HP E243i|CNK7290KPM|29|2017|Displayport|24|1920x1200|DISPLAY\HPN3401\5&2d0c1b1&0&UID4352_0
+
+.EXAMPLE
+    .\Get-AttachedMonitorInfo-Sensor.ps1 -ComputerName PC01, PC02
+
+    Returns one object per monitor on each computer, with a Computer property.
+
+.NOTES
+    Requires Windows and the root\WMI monitor classes (present on Windows 7 and later).
+    Querying a remote computer needs WMI/DCOM access to it. Uses Get-WmiObject, so it
+    runs on Windows PowerShell 5.1; conversion to CIM is tracked in issue #49.
 #>
 
 [CmdletBinding()]
-PARAM (
-[Parameter(ValueFromPipeline=$True,ValueFromPipelineByPropertyName=$True)]
-[String[]]$ComputerName = $env:ComputerName
+param (
+    [Parameter(ValueFromPipeline = $True, ValueFromPipelineByPropertyName = $True)]
+    [String[]]$ComputerName = $env:ComputerName,
+
+    [ValidateSet('Object', 'Delimited')]
+    [string]$OutputFormat = 'Object',
+
+    [string]$ManufacturerCsvPath = 'C:\DesktopSupportTools\Dictionaries\edid_manufacturers.csv'
 )
 
 #List of Manufacture Codes that could be pulled from WMI and their respective full names.
-$DictionaryDir = 'C:\DesktopSupportTools\Dictionaries'
-$EDID_Manufacturers = $DictionaryDir + '\edid_manufacturers.csv'
-IF (!(Test-Path $EDID_Manufacturers)) {}
-Import-CSV $EDID_Manufacturers -ErrorAction Stop | foreach { $ManufacturerHash = @{}} { $ManufacturerHash[$_."#Fields:ID"] = $_.Manufacturer }
+$ManufacturerHash = @{
+    "ACI" = " Asus";
+    "ACR" = "Acer";
+    "APP" = "Apple Computer";
+    "AUO" = "Asus";
+    "BOE" = "BOE";
+    "BBY" = "Insignia";
+    "BJK" = "DisplayLink";
+    "CEI" = "Crestron";
+    "CHE" = "Acer";
+    "CMN" = "Chimei Innolux";
+    "CMO" = "Acer";
+    "DEL" = "Dell";
+    "DLL" = "Dell";
+    "ELE" = "Element";
+    "GSM" = "LG";
+    "GWY" = "Gateway 2000";
+    "HEC" = "Hisense Electric";
+    "HJW" = "Tendak";
+    "HPC" = "HP";
+    "HPD" = "HP";
+    "HPN" = "HP";
+    "HPQ" = "HP";
+    "HWP" = "HP";
+    "HSG" = "HANNspree";
+    "KYK" = "Samsung";
+    "LEN" = "Lenovo";
+    "LGD" = "LG";
+    "LGS" = "LG";
+    "LIN" = "Lenovo";
+    "LNV" = "Lenovo";
+    "MCT" = "Microtec";
+    "NCT" = "NEC";
+    "NEC" = "NEC";
+    "NMV" = "NEC";
+    "NVD" = "Nvidia";
+    "PRT" = "Princeton";
+    "SAM" = "Samsung";
+    "SAN" = "Samsung";
+    "SEC" = "HP";
+    "SEM" = "Samsung";
+    "SKT" = "Samsung";
+    "SNY" = "Sony";
+    "SSE" = "Samsung";
+    "STN" = "Samsung";
+    "SYN" = "Synaptics";
+    "VIZ" = "Vizio";
+    "VSC" = "ViewSonic";
+}
 
+#Entries from the optional CSV add to, and override, the built-in table.
+if ($ManufacturerCsvPath -and (Test-Path -LiteralPath $ManufacturerCsvPath)) {
+    Import-Csv -LiteralPath $ManufacturerCsvPath | ForEach-Object { $ManufacturerHash[$_."#Fields:ID"] = $_.Manufacturer }
+}
 
 #List of friendly names for display input types.
 $InputTypeHash = @{
@@ -64,31 +150,12 @@ $InputTypeHash = @{
     "15" = "Wireless";
     "2147483648" = "Internal";
 }
-#List of names for display input types from WMI.
-$RawInputTypeHash = @{
-    "-2" = "D3DKMDT_VOT_UNINITIALIZED";
-    "-1" = "D3DKMDT_VOT_OTHER";
-    "0" = "D3DKMDT_VOT_HD15 (VGA)";
-    "1" = "D3DKMDT_VOT_SVIDEO";
-    "2" = "D3DKMDT_VOT_COMPOSITE_VIDEO";
-    "3" = "D3DKMDT_VOT_COMPONENT_VIDEO";
-    "4" = "D3DKMDT_VOT_DVI";
-    "5" = "D3DKMDT_VOT_HDMI";
-    "6" = "D3DKMDT_VOT_LVDS";
-    "8" = "D3DKMDT_VOT_D_JPN";
-    "9" = "D3DKMDT_VOT_SDI";
-    "10" = "D3DKMDT_VOT_DISPLAYPORT_EXTERNAL";
-    "11" = "D3DKMDT_VOT_DISPLAYPORT_EMBEDDED";
-    "12" = "D3DKMDT_VOT_UDI_EXTERNAL";
-    "13" = "D3DKMDT_VOT_UDI_EMBEDDED";
-    "14" = "D3DKMDT_VOT_SDTVDONGLE";
-    "15" = "D3DKMDT_VOT_MIRACAST";
-    "2147483648" = "D3DKMDT_VOT_INTERNAL";
-}
 
 #Takes each computer specified and runs the following code:
 ForEach ($Computer in $ComputerName) {
-    "Running PowerShell $($PSVersionTable.PSVersion)."
+    if ($OutputFormat -eq 'Object') {
+        "Running PowerShell $($PSVersionTable.PSVersion)."
+    }
 
     #Grabs the Monitor objects from WMI
     $Monitors = Get-WMIObject -Namespace root\WMI -Class "WMIMonitorID" `
@@ -97,7 +164,6 @@ ForEach ($Computer in $ComputerName) {
     #Creates an empty array to hold the data
     $Monitor_Array = @()
 
-
     #Takes each monitor object found and runs the following code:
     ForEach ($Monitor in $Monitors) {
 
@@ -105,77 +171,83 @@ ForEach ($Computer in $ComputerName) {
         #Get Horizontal and Vertical screen measurements, and calculate the diagonal size.
         $BasicDisplayParameters = Get-WMIObject -Namespace root\WMI `
             -ClassName WmiMonitorBasicDisplayParams -ComputerName $Computer `
-            -Filter $filter -ErrorAction SilentlyContinue 
-            $a = [System.Math]::Pow($BasicDisplayParameters.MaxHorizontalImageSize/2.54,2)
-            $b = [System.Math]::Pow($BasicDisplayParameters.MaxVerticalImageSize/2.54,2)
-            [string]$Mon_Size = [System.Math]::Round([System.Math]::Sqrt($a + $b))
-        
+            -Filter $filter -ErrorAction SilentlyContinue
+        $a = [System.Math]::Pow($BasicDisplayParameters.MaxHorizontalImageSize / 2.54, 2)
+        $b = [System.Math]::Pow($BasicDisplayParameters.MaxVerticalImageSize / 2.54, 2)
+        [string]$Mon_Size = [System.Math]::Round([System.Math]::Sqrt($a + $b))
+
         #Get monitor output ID and lookup friendly name (eg: DisplayPort)
         $ConnectionParameters = Get-WMIObject -Namespace root\WMI `
             -ClassName WmiMonitorConnectionParams -ComputerName $Computer `
-            -Filter $filter -ErrorAction SilentlyContinue 
+            -Filter $filter -ErrorAction SilentlyContinue
         [string]$OutputType = $ConnectionParameters.VideoOutputTechnology
         $Mon_Output_Type = $InputTypeHash.$OutputType
-        $Mon_Raw_Output_Type = $RawInputTypeHash.$OutputType
 
         #Find the maximum screen resolution supported by the display
         $maxres = Get-WMIObject -Namespace root\wmi `
             -ClassName WmiMonitorListedSupportedSourceModes -ComputerName $Computer `
             -Filter $filter -ErrorAction SilentlyContinue |
-            Select-Object -ExpandProperty MonitorSourceModes | 
-            Sort-Object -Property {$_.HorizontalActivePixels * $_.VerticalActivePixels} -Descending |
+            Select-Object -ExpandProperty MonitorSourceModes |
+            Sort-Object -Property { $_.HorizontalActivePixels * $_.VerticalActivePixels } -Descending |
             Select-Object -First 1
         $Mon_Max_Resolution = "$($maxres.HorizontalActivePixels)x$($maxres.VerticalActivePixels)"
 
         #Grabs respective data and converts it from ASCII encoding and removes any trailing ASCII null values
         If ($Monitor.UserFriendlyNameLength -gt 0) {
-            $Mon_Model = ([System.Text.Encoding]::ASCII.GetString($Monitor.UserFriendlyName)).Replace("$([char]0x0000)","")
-        } else {
+            $Mon_Model = ([System.Text.Encoding]::ASCII.GetString($Monitor.UserFriendlyName)).Replace("$([char]0x0000)", "")
+        }
+        else {
             $Mon_Model = 'NA'
         }
         #If the display is internal to the device, ignore the serial number field
         If ($InputTypeHash.$OutputType -ne 'Internal') {
-            $Mon_Serial_Number = ([System.Text.Encoding]::ASCII.GetString($Monitor.SerialNumberID)).Replace("$([char]0x0000)","")
-        } else {
+            $Mon_Serial_Number = ([System.Text.Encoding]::ASCII.GetString($Monitor.SerialNumberID)).Replace("$([char]0x0000)", "")
+        }
+        else {
             $Mon_Serial_Number = 'NA'
         }
 
-        $Mon_Manufacturer = ([System.Text.Encoding]::ASCII.GetString($Monitor.ManufacturerName)).Replace("$([char]0x0000)","")
+        $Mon_Manufacturer = ([System.Text.Encoding]::ASCII.GetString($Monitor.ManufacturerName)).Replace("$([char]0x0000)", "")
         $Mon_WeekOfManufacture = ($Monitor.WeekOfManufacture)
         $Mon_YearOfManufacture = ($Monitor.YearOfManufacture)
 
-        #Sets a friendly name based on the hash table above. If no entry found sets it to
+        #Sets a friendly name based on the table above. If no entry found sets it to
         #the original three character code
         $Mon_Manufacturer_Friendly = $ManufacturerHash.$Mon_Manufacturer
-        If ($Mon_Manufacturer_Friendly -eq $null) {
+        If (-not $Mon_Manufacturer_Friendly) {
             $Mon_Manufacturer_Friendly = $Mon_Manufacturer
         }
-        #Creates a custom monitor object and fills it with NoteProperty members and the
-        #respective data.  The data fields vary by the number of computers being targeted.
+
+        if ($OutputFormat -eq 'Delimited') {
+            [String]$retVal = $Mon_Manufacturer_Friendly + "|" + $Mon_Model + "|" + $Mon_Serial_Number + "|" + $Mon_WeekOfManufacture + "|" +
+            $Mon_YearOfManufacture + "|" + $Mon_Output_Type + "|" + $Mon_Size + "|" + $Mon_Max_Resolution + "|" + $Monitor.InstanceName
+            Write-Host $retVal
+            continue
+        }
+
+        #Creates a custom monitor object. The Computer property is added when more than one computer is targeted.
         If ($ComputerName.Count -gt 1) {
             $Monitor_Obj = [PSCustomObject]@{
-                Computer = $Computer
-                Manufacturer = $Mon_Manufacturer_Friendly
-                Model = $Mon_Model
-                SerialNumber = $Mon_Serial_Number
-                Week = $Mon_WeekOfManufacture
-                Year = $Mon_YearOfManufacture
-                Connection = $Mon_Output_Type
-                #RawConnectionData = $Mon_Raw_Output_Type
-                Size = $Mon_Size
+                Computer      = $Computer
+                Manufacturer  = $Mon_Manufacturer_Friendly
+                Model         = $Mon_Model
+                SerialNumber  = $Mon_Serial_Number
+                Week          = $Mon_WeekOfManufacture
+                Year          = $Mon_YearOfManufacture
+                Connection    = $Mon_Output_Type
+                Size          = $Mon_Size
                 MaxResolution = $Mon_Max_Resolution
-            }            
-        } else {
+            }
+        }
+        else {
             $Monitor_Obj = [PSCustomObject]@{
-
-                Manufacturer = $Mon_Manufacturer_Friendly
-                Model = $Mon_Model
-                SerialNumber = $Mon_Serial_Number
-                Week = $Mon_WeekOfManufacture
-                Year = $Mon_YearOfManufacture
-                Connection = $Mon_Output_Type
-                #RawConnectionData = $Mon_Raw_Output_Type
-                Size = $Mon_Size
+                Manufacturer  = $Mon_Manufacturer_Friendly
+                Model         = $Mon_Model
+                SerialNumber  = $Mon_Serial_Number
+                Week          = $Mon_WeekOfManufacture
+                Year          = $Mon_YearOfManufacture
+                Connection    = $Mon_Output_Type
+                Size          = $Mon_Size
                 MaxResolution = $Mon_Max_Resolution
             }
         }
