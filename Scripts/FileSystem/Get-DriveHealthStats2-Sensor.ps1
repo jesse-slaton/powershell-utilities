@@ -21,10 +21,10 @@
 
 .NOTES
     Written as a Tanium sensor. Requires smartctl.exe (smartmontools) on the PATH,
-    administrator rights, the Storage module (Get-Partition, Get-Disk), and Windows
-    PowerShell 5.1 (it uses Get-WmiObject, which is not available in PowerShell 7).
+    administrator rights, and the Storage module (Get-Partition, Get-Disk). Uses the CIM
+    cmdlets; runs on Windows PowerShell 5.1 and PowerShell 7.
 #>
-$Drives = (Get-WmiObject -Namespace root\cimv2 -Class Win32_LogicalDisk | ? {$_.DriveType -eq 3} )
+$Drives = (Get-CimInstance -Namespace root\cimv2 -ClassName Win32_LogicalDisk | ? {$_.DriveType -eq 3} )
 
 Foreach ($Drive in $Drives) {
 $smartctl = [string[]](smartctl -A $Drive.DeviceID)
