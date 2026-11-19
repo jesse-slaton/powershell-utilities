@@ -184,7 +184,7 @@ If you'd like to contribute a security fix:
 2. Wait for acknowledgment before submitting a PR
 3. Submit the PR to a private branch if requested
 4. Include security impact assessment in PR description
-5. Follow the coding standards in `docs/DEV_ENVIRONMENT.md`
+5. Follow the contributing guidelines in `README.md`
 
 ## Contact
 
