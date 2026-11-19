@@ -1,3 +1,31 @@
+<#
+.SYNOPSIS
+    Writes the names of the Device Guard available and required security properties as one line.
+
+.DESCRIPTION
+    Reads Win32_DeviceGuard (namespace root\Microsoft\Windows\DeviceGuard) with
+    Get-CimInstance. Each value in AvailableSecurityProperties is translated to a name
+    (0 None, 1 Hypervisor, 2 Secure Boot, 3 DMA Protection, 4 Secure Memory Overwrite,
+    5 NX Protections, 6 SMM Mitigations); values outside 0-6 have no name in the
+    table. The names are written with Write-Host as "<available>|<required>", with the
+    names in each part separated by spaces.
+
+    The required part does not translate RequiredSecurityProperties: its loop looks up
+    $Property (the last value of the available loop) instead of its own loop variable,
+    so it repeats that one name once per required property. The script also defines
+    lookup tables for code integrity, security services and VBS status that it does not
+    use. Output goes to the information stream (Write-Host), not the pipeline.
+    Read-only.
+
+.EXAMPLE
+    .\Get-DeviceGuardStatus.ps1
+
+    Writes a line in the form <available names>|<required names>.
+
+.NOTES
+    Requires Windows 10 or later (Win32_DeviceGuard). Works in Windows PowerShell 5.1
+    and PowerShell 7 (uses Get-CimInstance).
+#>
 $DGStatus = Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard
 
 $DGAvailableSecurityPropertiesHash = @{
