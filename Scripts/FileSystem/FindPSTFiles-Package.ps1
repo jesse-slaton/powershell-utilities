@@ -1,3 +1,37 @@
+<#
+.SYNOPSIS
+    Searches local drives for Outlook .pst files and writes a JSON list to C:\Support\Logs.
+
+.DESCRIPTION
+    First lowers the priority of its own PowerShell process (CPU priority Idle, memory
+    priority 1, I/O priority 0) through the SetPriorityClasses helper, which compiles a
+    small C# wrapper for SetProcessInformation and NtSetInformationProcess with Add-Type
+    and writes status messages with Write-Host.
+
+    It then lists every logical disk that is not a network drive (Win32_LogicalDisk,
+    DriveType <> 4) and recursively searches each one for *.pst files, ignoring access
+    errors. For each drive it outputs one object with Name (full path), LastWriteTime and
+    Size (formatted, for example "1.25 GB"). Only the last .pst found on a drive is kept,
+    and a drive with no .pst repeats the object from the previous drive, so the list is
+    not complete.
+
+    Finally it writes those objects, selected as FullName and LastWriteTime, as JSON to
+    C:\Support\Logs\PSTFiles.json, overwriting the file. The objects have no FullName
+    property, so that field is empty in the JSON.
+
+.EXAMPLE
+    .\FindPSTFiles-Package.ps1
+
+    Searches all local drives and writes C:\Support\Logs\PSTFiles.json.
+
+.NOTES
+    Written as a deployment package. C:\Support\Logs must already exist. Run as
+    administrator or Local System to search all user profiles. Searching whole drives
+    can take a long time. If setting the CPU priority fails, the helper calls Pause,
+    which waits for a key press, before exiting.
+#>
+
+
 Function SetPriorityClasses {
     [CmdletBinding()]
     Param (
