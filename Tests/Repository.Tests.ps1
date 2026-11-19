@@ -13,6 +13,7 @@ BeforeAll {
     $repoRoot = Split-Path -Parent $PSScriptRoot
     $script:targetNames = @(
         Get-ChildItem -Path (Join-Path $repoRoot 'Scripts'), (Join-Path $repoRoot 'Modules') -Recurse -File -Include '*.ps1', '*.psm1' |
+            Where-Object { $_.Name -notmatch '\.Tests\.psm?1$' } |
             ForEach-Object { [System.IO.Path]::GetFileNameWithoutExtension($_.Name) }
     )
 }
