@@ -1,4 +1,30 @@
-﻿$Drives = (Get-WmiObject -Namespace root\cimv2 -Class Win32_LogicalDisk | ? {$_.DriveType -eq 3} )
+﻿<#
+.SYNOPSIS
+    Reports selected SMART attribute values from smartctl as one pipe-delimited line.
+
+.DESCRIPTION
+    For each fixed logical disk (Win32_LogicalDisk, DriveType 3) runs
+    'smartctl -A <DriveLetter>' and parses the attribute table, adding the disk's
+    FriendlyName and SerialNumber from Get-Partition | Get-Disk. The attribute list is
+    reset for each drive, so only the last drive's attributes are kept. It then writes
+    one line with Write-Host:
+
+        <DriveLetter>|<FriendlyName>|<SerialNumber>|<5>|<187>|<188>|<197>|<198>
+
+    where the numbered fields are the normalized VALUE column of SMART attributes 5, 187,
+    188, 197 and 198 (empty when the attribute is not reported). Read-only.
+
+.EXAMPLE
+    .\Get-DriveHealthStats2-Sensor.ps1
+
+    C:|<FriendlyName>|<SerialNumber>|<Value5>|<Value187>|<Value188>|<Value197>|<Value198>
+
+.NOTES
+    Written as a Tanium sensor. Requires smartctl.exe (smartmontools) on the PATH,
+    administrator rights, the Storage module (Get-Partition, Get-Disk), and Windows
+    PowerShell 5.1 (it uses Get-WmiObject, which is not available in PowerShell 7).
+#>
+$Drives = (Get-WmiObject -Namespace root\cimv2 -Class Win32_LogicalDisk | ? {$_.DriveType -eq 3} )
 
 Foreach ($Drive in $Drives) {
 $smartctl = [string[]](smartctl -A $Drive.DeviceID)

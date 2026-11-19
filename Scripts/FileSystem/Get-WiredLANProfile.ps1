@@ -1,3 +1,32 @@
+<#
+.SYNOPSIS
+    Outputs the 802.1X settings of the first wired LAN profile and the dot3svc status.
+
+.DESCRIPTION
+    Checks the Wired AutoConfig service (dot3svc). If it is not running, the script sets
+    it to start automatically and starts it (Set-Service -StartupType Automatic -Status
+    Running), and throws "Check that dot3svc is running." if that fails.
+
+    It then runs 'netsh lan show profiles', parses the text output into one object per
+    profile, and writes the first profile as one line:
+
+        <ProfileOnInterface>|<Type>|<Enabled802_1x>|<Enforced802_1x>|<EAPType>|<AuthCredential802_1x>|<ServiceStatus>
+
+    ServiceStatus is the dot3svc status read before any start attempt. If netsh returns
+    no profile, indexing the empty result fails with an error.
+
+.EXAMPLE
+    .\Get-WiredLANProfile.ps1
+
+    <InterfaceName>|<Type>|Enabled|<Enforcement>|<EAPType>|<AuthCredential>|Running
+
+.NOTES
+    Requires administrator rights when dot3svc is not running (it changes the service
+    startup type and starts it). The parser reads English netsh output. PowerShell 3.0
+    or later.
+#>
+
+
 function ConvertFrom-NetshProfiles {
     [CmdletBinding()]
     Param(
