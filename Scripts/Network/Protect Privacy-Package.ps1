@@ -1,3 +1,46 @@
+<#
+.SYNOPSIS
+    Applies a set of Windows privacy settings: telemetry, advertising ID, web search, consumer features, Wi-Fi Sense, location, and related tasks and services.
+
+.DESCRIPTION
+    Changes the following, writing a status line to the output stream before each step:
+    - AdvertisingInfo Enabled = 0 (HKLM), only if the key exists.
+    - Windows Search policy AllowCortana = 0 (HKLM), only if the key exists.
+    - BingSearchEnabled = 0 (HKCU Search key, set without checking the key exists) and
+      DisableWebSearch = 1 (HKLM Windows Search policy, key created if missing).
+    - Siuf\Rules PeriodInNanoSeconds = 0 (HKCU, key created if missing).
+    - CloudContent DisableWindowsConsumerFeatures = 1 (HKLM policy) and the
+      ContentDeliveryManager values ContentDeliveryAllowed, OemPreInstalledAppsEnabled,
+      PreInstalledAppsEnabled, PreInstalledAppsEverEnabled, SilentInstalledAppsEnabled
+      and SystemPaneSuggestionsEnabled = 0 (HKCU).
+    - Holographic FirstRunSucceeded = 0 (HKCU), only if the key exists.
+    - Wi-Fi Sense: PolicyManager AllowWiFiHotSpotReporting and
+      AllowAutoConnectToWiFiSenseHotspots Value = 0, and WcmSvc AutoConnectAllowedOEM = 0
+      (HKLM).
+    - PushNotifications NoTileApplicationNotification = 1 (HKCU policy).
+    - AllowTelemetry = 0 under each of the three DataCollection keys (HKLM), only where
+      the key exists.
+    - Location: sensor override SensorPermissionState = 0 and lfsvc Configuration
+      Status = 0 (HKLM).
+    - People band PeopleBand = 0 (HKCU).
+    - Disables the scheduled tasks XblGameSaveTaskLogon, XblGameSaveTask, Consolidator,
+      UsbCeip, DmClient and DmClientOnScenarioDownload.
+    - Stops the dmwappushservice and DiagTrack services and sets them to Disabled.
+
+    Output is the status lines plus the objects returned by New-Item and
+    Disable-ScheduledTask. Revert Changes.ps1 reverses part of this.
+
+.EXAMPLE
+    & '.\Protect Privacy-Package.ps1'
+
+    Applies all of the settings above on the local computer.
+
+.NOTES
+    Requires administrator rights (HKLM, scheduled tasks and services). HKCU changes
+    apply to the user the script runs as; when run as SYSTEM (for example from a
+    deployment package) they land in the SYSTEM profile, not the signed-in user's.
+    Uses the ScheduledTasks module; works in Windows PowerShell 5.1 and PowerShell 7.
+#>
 #Disables Windows Feedback Experience
     Write-Output "Disabling Windows Feedback Experience program"
     $Advertising = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo"
