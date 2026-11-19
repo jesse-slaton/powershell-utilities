@@ -56,6 +56,8 @@ param(
     [switch]$FailOnIncomplete
 )
 
+$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).ProviderPath.TrimEnd('\', '/')
+
 if (-not $PSBoundParameters.ContainsKey('OutputPath')) {
     $OutputPath = Join-Path $RepoRoot 'help-coverage-report.json'
 }
@@ -70,26 +72,25 @@ function Get-HelpGrade {
         [string[]]$ParameterNames
     )
 
-    if (-not $Help -or [string]::IsNullOrWhiteSpace($Help.Synopsis)) {
-        return [pscustomobject]@{ Grade = 'None'; Missing = @('SYNOPSIS') }
-    }
-
     $missing = New-Object System.Collections.Generic.List[string]
-    if ([string]::IsNullOrWhiteSpace($Help.Description)) { $missing.Add('DESCRIPTION') }
+    $hasSynopsis = $Help -and -not [string]::IsNullOrWhiteSpace($Help.Synopsis)
+    if (-not $hasSynopsis) { $missing.Add('SYNOPSIS') }
+    if (-not $Help -or [string]::IsNullOrWhiteSpace($Help.Description)) { $missing.Add('DESCRIPTION') }
 
-    $documented = @($Help.Parameters.Keys | ForEach-Object { $_.ToUpperInvariant() })
+    $documented = if ($Help) { @($Help.Parameters.Keys | ForEach-Object { $_.ToUpperInvariant() }) } else { @() }
     foreach ($name in $ParameterNames) {
         if ($documented -notcontains $name.ToUpperInvariant()) { $missing.Add("PARAMETER $name") }
     }
 
     $requiredExamples = if ($ParameterNames.Count -gt 0) { 2 } else { 1 }
-    if ($Help.Examples.Count -lt $requiredExamples) {
-        $missing.Add("EXAMPLE (have $($Help.Examples.Count), need $requiredExamples)")
+    $exampleCount = if ($Help) { $Help.Examples.Count } else { 0 }
+    if ($exampleCount -lt $requiredExamples) {
+        $missing.Add("EXAMPLE (have $exampleCount, need $requiredExamples)")
     }
 
-    if ([string]::IsNullOrWhiteSpace($Help.Notes)) { $missing.Add('NOTES') }
+    if (-not $Help -or [string]::IsNullOrWhiteSpace($Help.Notes)) { $missing.Add('NOTES') }
 
-    $grade = if ($missing.Count -eq 0) { 'Complete' } else { 'Partial' }
+    $grade = if (-not $hasSynopsis) { 'None' } elseif ($missing.Count -eq 0) { 'Complete' } else { 'Partial' }
     [pscustomobject]@{ Grade = $grade; Missing = @($missing) }
 }
 
@@ -102,7 +103,7 @@ $scanRoots = @('Scripts', 'Modules') | ForEach-Object { Join-Path $RepoRoot $_ }
 $files = @(Get-ChildItem -Path $scanRoots -Recurse -File -Include '*.ps1', '*.psm1' | Sort-Object FullName)
 
 $items = foreach ($file in $files) {
-    $relative = $file.FullName.Substring($RepoRoot.TrimEnd('\', '/').Length + 1) -replace '\\', '/'
+    $relative = $file.FullName.Substring($RepoRoot.Length + 1) -replace '\\', '/'
     $tokens = $null
     $parseErrors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$parseErrors)
@@ -132,7 +133,8 @@ $items = foreach ($file in $files) {
         }
 
         if ($functions.Count -eq 0) {
-            [pscustomobject]@{ File = $relative; Function = $null; Grade = 'None'; Missing = @('no exported functions found') }
+            # The standard applies per exported function; a module that defines none has nothing to grade.
+            Write-Verbose "$relative defines no functions to grade; skipped."
             continue
         }
 
