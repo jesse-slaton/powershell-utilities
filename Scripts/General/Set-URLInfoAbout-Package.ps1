@@ -25,11 +25,11 @@
     Updates the support link that Programs and Features shows for Forcepoint.
 
 .NOTES
-    Requires administrator rights (writes to HKLM). Uses Get-WmiObject, so Windows
-    PowerShell 5.1 only. Named as a package; it takes no package parameters.
+    Requires administrator rights (writes to HKLM). Uses the CIM cmdlets; runs on
+    Windows PowerShell 5.1 and PowerShell 7. Named as a package; it takes no package parameters.
 #>
 
-$BatteryCount = (Get-WmiObject win32_battery).Count
+$BatteryCount = (Get-CimInstance -ClassName win32_battery).Count
 $Application = 'Forcepoint'
 $CombinedURL = 'https://support.forcepoint.com/DocumentsDisplayed?version=8.5&name=Forcepoint%20Web%20Security%20Endpoint'
 $DLPURL      = 'https://support.forcepoint.com/DocumentsDisplayed?version=8.5&name=Forcepoint%20DLP%20Endpoint'

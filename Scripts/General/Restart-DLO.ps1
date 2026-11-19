@@ -29,7 +29,7 @@
     DLO client installed (Get-Service writes an error if DLOChangeJournalSvc does not
     exist).
     Deletes user settings, so run it as the user whose DLO profile should be reset.
-    Uses Get-WmiObject, so Windows PowerShell 5.1 only.
+    Uses the CIM cmdlets; runs on Windows PowerShell 5.1 and PowerShell 7.
 #>
 
 $DLOClientEXE = 'DLOClientu.exe'
@@ -44,9 +44,9 @@ Function EXTERMINATE {
     param(
         $ProcessName
     )
-    $Processes = Get-WmiObject -Class Win32_Process -Filter "name='$ProcessName'"
+    $Processes = Get-CimInstance -ClassName Win32_Process -Filter "name='$ProcessName'"
     foreach ($process in $processes) {
-        $process.terminate()
+        Invoke-CimMethod -InputObject $process -MethodName Terminate
     }
 }
 

@@ -20,16 +20,16 @@
     Writes a line such as True|True|True|False|False|False.
 
 .NOTES
-    Requires Windows PowerShell 5.1 (uses Get-WmiObject, which PowerShell 7 does not
-    have) and Windows 10 or later for Win32_DeviceGuard. Writes a single
+    Runs on Windows PowerShell 5.1 and PowerShell 7 (uses the CIM cmdlets). Requires
+    Windows 10 or later for Win32_DeviceGuard. Writes a single
     pipe-delimited line. DGAvailableSecurityProperties.ps1 does the same
     for AvailableSecurityProperties.
 #>
-$OSVer = (Get-WmiObject -ClassName Win32_OperatingSystem -Namespace root\cimv2).Version
+$OSVer = (Get-CimInstance -ClassName Win32_OperatingSystem -Namespace root\cimv2).Version
 $Seedval = "False"
 If ([System.Version]$OSVer -lt [System.Version]'10.0.00000') { Write-Host 'N/A' }
 Else {
-    $DGStatus = Get-WmiObject `
+    $DGStatus = Get-CimInstance `
         -Query "Select RequiredSecurityProperties from Win32_DeviceGuard" `
         -Namespace root\Microsoft\Windows\DeviceGuard
 

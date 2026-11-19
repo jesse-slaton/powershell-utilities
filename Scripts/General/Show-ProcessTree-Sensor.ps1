@@ -19,8 +19,8 @@
     Runs the function as written; see the description for why the result is not usable.
 
 .NOTES
-    Uses Get-WmiObject, so Windows PowerShell 5.1 only. No admin rights needed to list
-    processes.
+    Uses the CIM cmdlets; runs on Windows PowerShell 5.1 and PowerShell 7. No admin
+    rights needed to list processes.
 #>
 
 
@@ -47,7 +47,7 @@ Function Show-ProcessTree {
     if ($null -eq $filter) {
         $filter = { -not (Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue) -or $_.ParentProcessId -eq 0 }
     }
-    $procs = Get-WmiObject Win32_Process
+    $procs = Get-CimInstance -ClassName Win32_Process
 
     $top = $procs | Where-Object $filter | Sort-Object ProcessID
     foreach ($p in $top) {

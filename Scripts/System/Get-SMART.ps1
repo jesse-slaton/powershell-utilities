@@ -20,9 +20,9 @@
     per disk.
 
 .NOTES
-    Requires administrator rights (the script self-elevates). Requires Windows
-    PowerShell 5.1: it uses Get-WmiObject, and the self-elevation always starts
-    powershell.exe. When it self-elevates, the new window closes when the script ends,
+    Requires administrator rights (the script self-elevates). Uses the CIM cmdlets, so
+    it runs on Windows PowerShell 5.1 and PowerShell 7, but the self-elevation always
+    starts powershell.exe (Windows PowerShell 5.1). When it self-elevates, the new window closes when the script ends,
     so run it from an elevated session to read the output. Only disks whose driver
     exposes SMART data through WMI are listed (typically ATA/SATA; often not NVMe or
     USB disks).
@@ -34,7 +34,7 @@ If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
   exit
 }
 
-$smart = Get-WmiObject -Namespace root\WMI -Class MSStorageDriver_FailurePredictData
+$smart = Get-CimInstance -Namespace root\WMI -ClassName MSStorageDriver_FailurePredictData
 if ($smart.VendorSpecific.Length -gt 0) {
     $smart = @($smart)
 }
