@@ -1,5 +1,11 @@
-#$ComputerName = $Env:COMPUTERNAME
-$ComputerName = 'aisesprwalt004'
+# Attribution: the help block and the GetADBitlockerInfo function below are adapted from
+# Get-BitLockerRecovery.ps1 by Bill Stewart, as published in the gist
+# https://gist.github.com/morisy/5b99e763d6b72f9b3e7c1747b6d0a1ee (uploaded by morisy).
+# The gist states no license. The volume status report after the function is first-party.
+param(
+    # Computer to report on. Defaults to the local computer.
+    [string]$ComputerName = $env:COMPUTERNAME
+)
 
 ## Active Directory: Get BitLocker Recovery Information from AD Using PowerShell ##
 
@@ -251,7 +257,12 @@ $ConversionStatusHash = @{
   '5' = 'Decryption Paused'
 }
 
-$ADFVEData = Get-CimInstance -Namespace root/CIMv2/Security/MicrosoftVolumeEncryption -ClassName Win32_EncryptableVolume -Filter "DriveLetter IS NOT NULL" -ComputerName $ComputerName
+# '.' and 'localhost' mean this computer; use its real name for the AD lookup too.
+if ($ComputerName -in @('.', 'localhost')) { $ComputerName = $env:COMPUTERNAME }
+# Query the local computer directly; pass -ComputerName (WinRM) only for a remote computer.
+$CimTarget = @{}
+if ($ComputerName -ne $env:COMPUTERNAME) { $CimTarget.ComputerName = $ComputerName }
+$ADFVEData = Get-CimInstance -Namespace root/CIMv2/Security/MicrosoftVolumeEncryption -ClassName Win32_EncryptableVolume -Filter "DriveLetter IS NOT NULL" @CimTarget
 $ADBitlockeVolumesrInfo = GetADBitlockerInfo -name $ComputerName
 $BitlockerStatus = @()
 
