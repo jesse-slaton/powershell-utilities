@@ -1,3 +1,8 @@
+param(
+    # CSV file to write. Defaults to workstationOUs.csv in the current user's Documents folder.
+    [string]$OutputPath = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'workstationOUs.csv')
+)
+
 $daysinactive = 45
 $time = (get-date).AddDays($daysinactive)
 $Workstations = Get-ADComputer -Filter { 
@@ -15,4 +20,4 @@ ForEach ($Workstation in $Workstations) {
         @{n = "OU"; e = {$location}}
 }
 
-$ArrayofWorkstations | Export-Csv 'C:\Users\jdoe\OneDrive - Contoso Insurance\Documents\workstationOUs.csv'
+$ArrayofWorkstations | Export-Csv $OutputPath

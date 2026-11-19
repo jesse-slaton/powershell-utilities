@@ -16,6 +16,9 @@
     - unrestricted: Comprehensive cleanup (no timeout) - All cleanup operations
     Default value is "normal".
 
+.PARAMETER LogPath
+    Folder for the cleanup log. Defaults to MainCleanupScript under $env:ProgramData.
+
 .PARAMETER Resume
     When specified, the script will resume from the last completed cleanup step.
     This is useful if a previous cleanup operation was interrupted or timed out.
@@ -39,7 +42,7 @@
 .NOTES
     Author: System Administrator
     Dependencies: Requires CleanupFunctions.psm1 module in the same directory
-    Log Location: C:\Contoso\Logs
+    Log Location: -LogPath (default: $env:ProgramData\MainCleanupScript)
     Registry: Stores cleanup state in registry when disk space is below 15%
 
 .LINK
@@ -49,6 +52,7 @@
 param (
     [ValidateSet("fast", "normal", "thorough", "unrestricted")]
     [string]$Thoroughness = "normal",
+    [string]$LogPath = (Join-Path $env:ProgramData 'MainCleanupScript'),
     [switch]$Resume
 )
 
@@ -63,7 +67,6 @@ else {
 }
 
 $StartTime = Get-Date
-$LogPath = "C:\Contoso\Logs"
 StartCleanupLog -LogPath $LogPath -Thoroughness $Thoroughness -StartTime $StartTime
 
 try {
