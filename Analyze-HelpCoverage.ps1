@@ -1,93 +1,181 @@
 <#
 .SYNOPSIS
-    Analyzes comment-based help coverage across PowerShell scripts in the repository.
+    Grades comment-based help in Scripts/ and Modules/ against the repository help standard.
 
 .DESCRIPTION
-    This script scans all .ps1 files in the repository and categorizes them based on
-    their comment-based help documentation status. It identifies scripts with complete
-    help, partial help, and no help documentation.
+    Parses every .ps1 and .psm1 file under Scripts/ and Modules/ with the PowerShell
+    language parser (no file is executed or dot-sourced) and grades its help against
+    the standard in README.md ("Comment-based help standard"):
+
+    - .SYNOPSIS and .DESCRIPTION
+    - one .PARAMETER for every declared parameter
+    - at least one .EXAMPLE, or two when the script or function takes parameters
+    - .NOTES (prerequisites such as admin rights, a vendor agent, or required modules)
+
+    A .ps1 file is graded once, on its script-level help. A .psm1 file is graded per
+    exported function: functions named in Export-ModuleMember -Function, or every
+    top-level function when the module has no Export-ModuleMember call.
+
+    Each item is Complete (meets every rule), Partial (has a .SYNOPSIS but misses at
+    least one rule), or None (no .SYNOPSIS). Tests/ is exempt and never scanned.
+
+.PARAMETER RepoRoot
+    Repository root that contains Scripts/ and Modules/. Defaults to the folder this
+    script lives in.
+
+.PARAMETER OutputPath
+    Path of the JSON report. Defaults to help-coverage-report.json in RepoRoot (the
+    file is gitignored). Pass an empty string to skip writing the report.
+
+.PARAMETER FailOnIncomplete
+    Exit with code 1 when any item is not Complete. Use this once help coverage is
+    meant to be a blocking CI check.
 
 .EXAMPLE
     .\Analyze-HelpCoverage.ps1
-    Analyzes all scripts and displays a summary of help coverage.
+
+    Prints a summary and the files missing help, and writes help-coverage-report.json.
+
+.EXAMPLE
+    .\Analyze-HelpCoverage.ps1 -OutputPath '' -FailOnIncomplete
+
+    Prints the summary without writing a report and exits 1 if any item is incomplete.
 
 .NOTES
-    Author: Generated for Issue #4
-    Purpose: Track progress of adding comment-based help to all scripts
+    Requires PowerShell 5.1 or later. Reads files only; makes no changes outside
+    OutputPath.
 #>
 
 [CmdletBinding()]
-param()
+param(
+    [string]$RepoRoot = $PSScriptRoot,
 
-$RepoRoot = $PSScriptRoot
-$AllScripts = Get-ChildItem -Path $RepoRoot -Filter "*.ps1" -Recurse | Where-Object {
-    $_.FullName -notmatch '\\\.git\\'
+    [AllowEmptyString()]
+    [string]$OutputPath = (Join-Path $PSScriptRoot 'help-coverage-report.json'),
+
+    [switch]$FailOnIncomplete
+)
+
+function Get-HelpGrade {
+    <#
+    .SYNOPSIS
+        Grades one help block against the standard and returns Complete, Partial, or None plus the missing rules.
+    #>
+    param(
+        [System.Management.Automation.Language.CommentHelpInfo]$Help,
+        [string[]]$ParameterNames
+    )
+
+    if (-not $Help -or [string]::IsNullOrWhiteSpace($Help.Synopsis)) {
+        return [pscustomobject]@{ Grade = 'None'; Missing = @('SYNOPSIS') }
+    }
+
+    $missing = New-Object System.Collections.Generic.List[string]
+    if ([string]::IsNullOrWhiteSpace($Help.Description)) { $missing.Add('DESCRIPTION') }
+
+    $documented = @($Help.Parameters.Keys | ForEach-Object { $_.ToUpperInvariant() })
+    foreach ($name in $ParameterNames) {
+        if ($documented -notcontains $name.ToUpperInvariant()) { $missing.Add("PARAMETER $name") }
+    }
+
+    $requiredExamples = if ($ParameterNames.Count -gt 0) { 2 } else { 1 }
+    if ($Help.Examples.Count -lt $requiredExamples) {
+        $missing.Add("EXAMPLE (have $($Help.Examples.Count), need $requiredExamples)")
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Help.Notes)) { $missing.Add('NOTES') }
+
+    $grade = if ($missing.Count -eq 0) { 'Complete' } else { 'Partial' }
+    [pscustomobject]@{ Grade = $grade; Missing = @($missing) }
 }
 
-$Results = @{
-    WithCompleteHelp = @()
-    WithPartialHelp = @()
-    WithoutHelp = @()
+function Get-ParameterName {
+    param([System.Management.Automation.Language.ParameterAst[]]$Parameter)
+    @($Parameter | Where-Object { $_ } | ForEach-Object { $_.Name.VariablePath.UserPath })
 }
 
-foreach ($Script in $AllScripts) {
-    $Content = Get-Content -Path $Script.FullName -Raw
+$scanRoots = @('Scripts', 'Modules') | ForEach-Object { Join-Path $RepoRoot $_ } | Where-Object { Test-Path $_ }
+$files = @(Get-ChildItem -Path $scanRoots -Recurse -File -Include '*.ps1', '*.psm1' | Sort-Object FullName)
 
-    # Check for comment-based help block
-    $HasHelpBlock = $Content -match '(?ms)<#.*?\.SYNOPSIS.*?#>'
+$items = foreach ($file in $files) {
+    $relative = $file.FullName.Substring($RepoRoot.TrimEnd('\', '/').Length + 1) -replace '\\', '/'
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$parseErrors)
 
-    if ($HasHelpBlock) {
-        # Check for complete help (must have SYNOPSIS, DESCRIPTION, and at least one EXAMPLE)
-        $HasSynopsis = $Content -match '\.SYNOPSIS'
-        $HasDescription = $Content -match '\.DESCRIPTION'
-        $HasExample = $Content -match '\.EXAMPLE'
-        $HasParameters = $Content -match '\.PARAMETER'
+    if ($parseErrors.Count -gt 0) {
+        [pscustomobject]@{ File = $relative; Function = $null; Grade = 'None'; Missing = @("parse error: $($parseErrors[0].Message)") }
+        continue
+    }
 
-        if ($HasSynopsis -and $HasDescription -and $HasExample) {
-            $Results.WithCompleteHelp += $Script
-        } else {
-            $Results.WithPartialHelp += $Script
+    if ($file.Extension -eq '.psm1') {
+        $functions = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $false))
+
+        $exportCalls = @($ast.FindAll({
+                    param($n)
+                    $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Export-ModuleMember'
+                }, $true))
+        if ($exportCalls.Count -gt 0) {
+            $exported = foreach ($call in $exportCalls) {
+                $call.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.StringConstantExpressionAst] -or $_ -is [System.Management.Automation.Language.ArrayLiteralAst] } |
+                    ForEach-Object { $_.SafeGetValue() }
+            }
+            $exported = @($exported | ForEach-Object { $_ } | Where-Object { $_ -is [string] -and $_ -ne 'Export-ModuleMember' })
+            # Names passed in variables cannot be resolved statically; grade every function then.
+            if ($exported.Count -gt 0 -and $exported -notcontains '*') {
+                $functions = @($functions | Where-Object { $exported -contains $_.Name })
+            }
         }
-    } else {
-        $Results.WithoutHelp += $Script
+
+        if ($functions.Count -eq 0) {
+            [pscustomobject]@{ File = $relative; Function = $null; Grade = 'None'; Missing = @('no exported functions found') }
+            continue
+        }
+
+        foreach ($function in $functions) {
+            $params = if ($function.Body.ParamBlock) { $function.Body.ParamBlock.Parameters } else { $function.Parameters }
+            $result = Get-HelpGrade -Help $function.GetHelpContent() -ParameterNames (Get-ParameterName $params)
+            [pscustomobject]@{ File = $relative; Function = $function.Name; Grade = $result.Grade; Missing = $result.Missing }
+        }
+    }
+    else {
+        $params = if ($ast.ParamBlock) { $ast.ParamBlock.Parameters } else { @() }
+        $result = Get-HelpGrade -Help $ast.GetHelpContent() -ParameterNames (Get-ParameterName $params)
+        [pscustomobject]@{ File = $relative; Function = $null; Grade = $result.Grade; Missing = $result.Missing }
     }
 }
+$items = @($items)
 
-# Display summary
-$TotalScripts = $AllScripts.Count
-$CompleteCount = $Results.WithCompleteHelp.Count
-$PartialCount = $Results.WithPartialHelp.Count
-$NoHelpCount = $Results.WithoutHelp.Count
-$CoveredCount = $CompleteCount + $PartialCount
+$total = $items.Count
+$byGrade = @{}
+foreach ($grade in 'Complete', 'Partial', 'None') { $byGrade[$grade] = @($items | Where-Object Grade -EQ $grade) }
 
-Write-Host "`n=== PowerShell Help Coverage Analysis ===" -ForegroundColor Cyan
-Write-Host "Total Scripts: $TotalScripts" -ForegroundColor White
-Write-Host "With Complete Help: $CompleteCount ($([math]::Round($CompleteCount/$TotalScripts*100, 1))%)" -ForegroundColor Green
-Write-Host "With Partial Help: $PartialCount ($([math]::Round($PartialCount/$TotalScripts*100, 1))%)" -ForegroundColor Yellow
-Write-Host "Without Help: $NoHelpCount ($([math]::Round($NoHelpCount/$TotalScripts*100, 1))%)" -ForegroundColor Red
-Write-Host "Overall Coverage: $CoveredCount / $TotalScripts ($([math]::Round($CoveredCount/$TotalScripts*100, 1))%)`n" -ForegroundColor Cyan
+function Format-Percent([int]$Count) { if ($total) { [math]::Round($Count / $total * 100, 1) } else { 0 } }
 
-# Group scripts without help by directory
-Write-Host "`n=== Scripts Without Help (by directory) ===" -ForegroundColor Yellow
-$NoHelpByDir = $Results.WithoutHelp | Group-Object {
-    $_.FullName.Replace($RepoRoot, '').Split([IO.Path]::DirectorySeparatorChar)[1..2] -join '\'
-} | Sort-Object Count -Descending
+Write-Host "`n=== Comment-based help coverage (Scripts/ and Modules/) ===" -ForegroundColor Cyan
+Write-Host "Files scanned: $($files.Count)   Items graded: $total (one per .ps1, one per exported .psm1 function)"
+Write-Host "Complete: $($byGrade.Complete.Count) ($(Format-Percent $byGrade.Complete.Count)%)" -ForegroundColor Green
+Write-Host "Partial:  $($byGrade.Partial.Count) ($(Format-Percent $byGrade.Partial.Count)%)" -ForegroundColor Yellow
+Write-Host "None:     $($byGrade.None.Count) ($(Format-Percent $byGrade.None.Count)%)" -ForegroundColor Red
 
-foreach ($Group in $NoHelpByDir) {
-    Write-Host "$($Group.Name): $($Group.Count) scripts" -ForegroundColor Yellow
+Write-Host "`n=== Items without help, by folder ===" -ForegroundColor Yellow
+$byGrade.None | Group-Object { ($_.File -split '/')[0..1] -join '/' } | Sort-Object Count -Descending |
+    ForEach-Object { Write-Host ("{0}: {1}" -f $_.Name, $_.Count) -ForegroundColor Yellow }
+
+if ($OutputPath) {
+    [ordered]@{
+        Standard     = 'README.md#comment-based-help-standard'
+        FilesScanned = $files.Count
+        ItemsGraded  = $total
+        Complete     = $byGrade.Complete.Count
+        Partial      = $byGrade.Partial.Count
+        None         = $byGrade.None.Count
+        Items        = $items
+    } | ConvertTo-Json -Depth 4 | Set-Content -Path $OutputPath -Encoding UTF8
+    Write-Host "`nReport written to: $OutputPath" -ForegroundColor Green
 }
 
-# Export detailed results
-$ExportPath = Join-Path $RepoRoot "help-coverage-report.json"
-$ExportData = @{
-    TotalScripts = $TotalScripts
-    CompleteHelp = $Results.WithCompleteHelp | ForEach-Object { $_.FullName.Replace($RepoRoot, '.') }
-    PartialHelp = $Results.WithPartialHelp | ForEach-Object { $_.FullName.Replace($RepoRoot, '.') }
-    NoHelp = $Results.WithoutHelp | ForEach-Object { $_.FullName.Replace($RepoRoot, '.') }
+if ($FailOnIncomplete -and ($byGrade.Partial.Count + $byGrade.None.Count) -gt 0) {
+    Write-Error "$($byGrade.Partial.Count + $byGrade.None.Count) item(s) do not meet the help standard."
+    exit 1
 }
-
-$ExportData | ConvertTo-Json -Depth 3 | Set-Content -Path $ExportPath
-Write-Host "`nDetailed report exported to: $ExportPath" -ForegroundColor Green
-
-# Return results for pipeline
-return $Results
