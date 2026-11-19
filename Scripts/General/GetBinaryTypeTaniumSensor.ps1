@@ -1,3 +1,40 @@
+<#
+.SYNOPSIS
+    Tanium sensor that reports whether each listed file is a 32-bit or 64-bit PE image.
+
+.DESCRIPTION
+    Takes a comma-separated list of file paths from the Tanium sensor parameter
+    ||strFiles|| (URL-decoded with [System.Uri]::UnescapeDataString). For each path
+    that exists, the internal Get-PEInfo function opens the file read-only, reads the
+    DOS header and the optional header magic number, and the script writes one line:
+
+        <Path>|32-bit
+        <Path>|64-bit
+        <Path>|Not a valid PE file!
+
+    ROM images and unknown magic numbers produce a "ROM File, not supported!" or
+    "Unknown PE file type" message instead, which can be followed by errors. A path
+    that does not exist is reported as "<Path>|File not found!" with Write-Host rather
+    than Write-Output. Read-only.
+
+.EXAMPLE
+    .\GetBinaryTypeTaniumSensor.ps1
+
+    Run outside Tanium, ||strFiles|| is not replaced, so no real file is checked.
+    Use this only to confirm the script loads.
+
+.EXAMPLE
+    # In Tanium, set strFiles to: C:\Windows\System32\notepad.exe,C:\Tools\app.exe
+
+    Returns one "<Path>|<Architecture>" line per file.
+
+.NOTES
+    Written as a Tanium sensor: the Tanium Client must substitute the ||strFiles||
+    parameter. Requires PowerShell 5.0 or later (uses enum definitions). Needs read
+    access to the files; no admin rights needed otherwise.
+#>
+
+
 function Get-PEInfo {
     param(
         [Parameter(Mandatory = $true, Position = 0)]
