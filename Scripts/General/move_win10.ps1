@@ -1,3 +1,27 @@
+<#
+.SYNOPSIS
+    Moves a hard-coded list of computers to the Windows 10 staging OU in Active Directory.
+
+.DESCRIPTION
+    Prompts for a credential with Get-Credential, then for each computer name in the
+    list in the script runs Get-ADComputer (as the current user) and pipes the result
+    to Move-ADObject -TargetPath 'OU=Windows 10,OU=Staging,OU=Corp,DC=corp,DC=contoso,DC=com'
+    -Credential <the prompted credential> -Verbose. A comment calls this a
+    prerequisite for "yellow bang mitigation". Changes Active Directory; writes verbose
+    messages and any errors (for example for names that are not found).
+
+.EXAMPLE
+    .\move_win10.ps1
+
+    Prompts for an admin credential and moves the listed computers.
+
+.NOTES
+    Requires the ActiveDirectory module (RSAT), network access to a domain controller,
+    and a credential with rights to move the computer objects. The computer list and
+    the target OU are hard-coded; edit them before use. Works in Windows PowerShell
+    5.1.
+#>
+
 $myAdminCred = Get-Credential
 # prereq for yellow bang mitigation.
 $l = @(

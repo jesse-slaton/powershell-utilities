@@ -1,3 +1,37 @@
+<#
+.SYNOPSIS
+    Restarts the DLO (Desktop and Laptop Option) backup client and clears the current user's DLO settings.
+
+.DESCRIPTION
+    In order, the script:
+
+    1. Stops the DLOChangeJournalSvc service with -Force. If that fails, it terminates
+       every DLOChangeLogSvcu.exe process through Win32_Process.
+    2. Terminates every DLOClientu.exe process (for all users) through Win32_Process.
+    3. Deletes every DLO folder one level under the current user's
+       $env:LOCALAPPDATA (the path $env:LOCALAPPDATA\*\DLO), recursively and with
+       -Force.
+    4. Starts DLOChangeJournalSvc.
+    5. Starts DloClientu.exe with the argument -u, from the first match of
+       $env:SystemDrive\Program Files*\*\*DLO\DLO\DloClientu.exe after sorting by
+       VersionInfo.
+
+    Terminate calls write their result objects to the output.
+
+.EXAMPLE
+    .\Restart-DLO.ps1
+
+    Run from an elevated prompt in the affected user's session: resets that user's
+    DLO settings and restarts DLO.
+
+.NOTES
+    Requires administrator rights (stops a service and other users' processes) and the
+    DLO client installed (Get-Service writes an error if DLOChangeJournalSvc does not
+    exist).
+    Deletes user settings, so run it as the user whose DLO profile should be reset.
+    Uses Get-WmiObject, so Windows PowerShell 5.1 only.
+#>
+
 $DLOClientEXE = 'DLOClientu.exe'
 $DLOService = Get-Service -Name DLOChangeJournalSvc
 $DLOServiceEXE = 'DLOChangeLogSvcu.exe'
