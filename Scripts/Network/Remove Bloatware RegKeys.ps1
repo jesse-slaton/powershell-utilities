@@ -1,3 +1,27 @@
+<#
+.SYNOPSIS
+    Deletes leftover HKEY_CLASSES_ROOT extension keys for specific removed bloatware packages.
+
+.DESCRIPTION
+    Deletes, with Remove-Item -Recurse, a fixed list of keys under
+    HKCR:\Extensions\ContractId (Windows.BackgroundTasks, Windows.File, Windows.Launch,
+    Windows.PreInstalledConfigTask, Windows.Protocol and Windows.ShareTarget) for
+    specific package versions of EclipseManager, an Actipro Software app, Office Hub,
+    PPIProjection and XboxGameCallableUI. Writes "Removing <Key> from registry" for each
+    key. A key that does not exist produces an error record; the loop continues.
+
+.EXAMPLE
+    & '.\Remove Bloatware RegKeys.ps1'
+
+    Deletes the listed keys that are present.
+
+.NOTES
+    Requires administrator rights (HKEY_CLASSES_ROOT). The script uses an HKCR: drive
+    but does not create it; PowerShell has no HKCR: drive by default, so map one first,
+    for example: New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT.
+    The key names include fixed package version strings, so newer versions are not
+    matched. Works in Windows PowerShell 5.1 and PowerShell 7.
+#>
 $Keys = @(
             
         #Remove Background Tasks
