@@ -19,7 +19,7 @@
     [System.Uri]::UnescapeDataString.
 
 .EXAMPLE
-    .\AD Query - Altiris Primary User Group Member.ps1
+    & '.\AD Query - Altiris Primary User Group Member.ps1'
 
     Run by Tanium as a sensor with the MemberOf parameter set to a group name; outputs
     True or False.

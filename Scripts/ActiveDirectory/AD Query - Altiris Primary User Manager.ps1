@@ -16,7 +16,7 @@
     [System.Uri]::UnescapeDataString.
 
 .EXAMPLE
-    .\AD Query - Altiris Primary User Manager.ps1
+    & '.\AD Query - Altiris Primary User Manager.ps1'
 
     Run by Tanium as a sensor with the Manager parameter set to a manager's name;
     outputs True or False.

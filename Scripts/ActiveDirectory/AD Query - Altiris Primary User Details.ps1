@@ -15,7 +15,7 @@
     'ReportingGroup'. Fields that cannot be read are empty. Read-only.
 
 .EXAMPLE
-    .\AD Query - Altiris Primary User Details.ps1
+    & '.\AD Query - Altiris Primary User Details.ps1'
 
     <UserName>|<DisplayName>|<Department>|<ManagerName>|<Group1>,<Group2>
 
