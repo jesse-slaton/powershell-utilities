@@ -2,10 +2,14 @@
 
 ## Status
 
-**Initial import - reorganization in progress**
+**Cleanup in progress**
 
 This repository was created from a reorganization of a monolithic PowerShell script collection.
-Scripts are being refactored and improved according to the standards in DEV_ENVIRONMENT.md.
+Scripts are being documented, tested, and consolidated into modules; see the tracking issues
+[#4 (help)](https://github.com/jesse-slaton/powershell-utilities/issues/4),
+[#1 (tests and CI)](https://github.com/jesse-slaton/powershell-utilities/issues/1),
+[#2 (modules)](https://github.com/jesse-slaton/powershell-utilities/issues/2), and
+[#3 (legacy API modernization)](https://github.com/jesse-slaton/powershell-utilities/issues/3).
 
 > **Note**: Path Commander (the Windows PATH TUI manager) has been moved to its own repository:
 > https://github.com/jesse-slaton/cli-tools
@@ -17,21 +21,20 @@ General-purpose PowerShell utilities for system administration
 ## Current State
 
 - [x] Initial import complete
-- [ ] Refactoring in progress
-- [ ] Documentation being added
-- [ ] Tests being written
+- [x] VBScript dependencies removed
+- [ ] Comment-based help on every script (#4)
+- [ ] Real Pester tests and CI (#1)
+- [ ] Related scripts consolidated into modules (#2)
+- [ ] `Get-WmiObject` replaced with CIM cmdlets (#3)
 
 ## Structure
 
 ```
 powershell-utilities/
-  Sensors/       # Read-only data collection scripts
-  Packages/      # State-changing deployment scripts
-  Shared/        # Dual-use scripts
+  Scripts/       # Scripts grouped by category (ActiveDirectory, Network, System, ...)
   Modules/       # PowerShell modules
   Tests/         # Pester tests
-  docs/          # Documentation
-  Templates/     # Script templates
+  docs/          # Per-script documentation pages
 ```
 
 
@@ -54,17 +57,9 @@ Some scripts depend on external repositories. See `EXTERNAL_REPOS.txt` for:
 - Installation instructions
 - Local path requirements
 
-## Getting Started
-
-See [DEV_ENVIRONMENT.md](./DEV_ENVIRONMENT.md) for:
-- Required tools (PowerShell, PSScriptAnalyzer, Pester)
-- VS Code setup
-- Git hooks configuration
-- Development workflow
-
 ## Contributing
 
-1. Follow the naming conventions in `docs/TANIUM_NAMING_CONVENTION.md`
+1. Use approved PowerShell verbs (`Get-Verb`) for new script and function names
 2. Write tests for all new scripts
 3. Add comment-based help to all functions
 4. Run PSScriptAnalyzer before committing
@@ -72,21 +67,10 @@ See [DEV_ENVIRONMENT.md](./DEV_ENVIRONMENT.md) for:
 
 ## Documentation
 
-- [DEV_ENVIRONMENT.md](./DEV_ENVIRONMENT.md) - Development environment setup
-- [docs/MODULE_OPPORTUNITIES.md](./docs/MODULE_OPPORTUNITIES.md) - Module consolidation plans
-- [docs/EXTERNAL_DEPENDENCIES.md](./docs/EXTERNAL_DEPENDENCIES.md) - External dependencies
-
-## Next Steps
-
-See the `refactoring` branch for ongoing improvements:
-1. Add help documentation to all scripts
-2. Implement WhatIf support for state-changing scripts
-3. Write Pester tests
-4. Consolidate related scripts into modules
-5. Remove VBScript dependencies
+- [EXTERNAL_REPOS.txt](./EXTERNAL_REPOS.txt) - Upstream sources for archived and vendored scripts
+- Comment-based help in each script: `Get-Help <path-to-script> -Full`
 
 ---
 
-Generated: 2025-10-14 16:43:23
-Baseline: v0.1-baseline
+Initial import: 2025-10-14 (tag `v0.1-baseline`)
 

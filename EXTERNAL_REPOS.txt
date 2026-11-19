@@ -13,11 +13,6 @@ Updated: 2025-10-27
 
 ## Repositories
 
-### Port_Authority
-- Original: (Check EXTERNAL_DEPENDENCIES.md for URL)
-- Status: [ ] Forked [ ] Starred
-- Local Path: D:\dev\repos\Port_Authority
-
 ### Windows-Secure-Host-Baseline
 - Original: https://github.com/nsacyber/Windows-Secure-Host-Baseline
 - Status: [ ] Forked [ ] Starred
@@ -47,7 +42,7 @@ These scripts were previously included but have been archived. Reference from or
 
 ## Required PowerShell Modules
 
-See EXTERNAL_DEPENDENCIES.md for full list of required modules:
+Modules required by individual scripts:
 - ActiveDirectory
 - AWSPowerShell
 - TaniumClient
