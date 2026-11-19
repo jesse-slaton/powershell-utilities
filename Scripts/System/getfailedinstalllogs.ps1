@@ -1,7 +1,6 @@
 $logpath = "DesktopSupportTools\Logs"
-$logsavepath = "C:\Users\jdoe\OneDrive - Contoso Insurance\Downloads\"
 $computers = 'VDI-X0001'
-#$computers = Import-CSV -Path "$logsavepath\afclientPCs.csv"
+#$computers = Import-CSV -Path "$env:USERPROFILE\Downloads\afclientPCs.csv"
 
 Foreach ($Computer in $computers) {
     If ((Test-NetConnection -ComputerName "$computers").PingSucceeded -eq $True) {
