@@ -1,6 +1,8 @@
 #Version 1.5
 
 <#     
+       .SYNOPSIS
+              Creates an "Install IBM PAX" Desktop shortcut that runs C:\DesktopSupportTools\PAX\install.cmd.
        .NOTES
        ===========================================================================
        Created with:       SAPIEN Technologies, Inc., PowerShell Studio 2014 v4.1.51
@@ -9,8 +11,25 @@
        Organization:       MIG
        Filename:           
        ===========================================================================
+              Prerequisites: Windows. The shortcut only works if
+              C:\DesktopSupportTools\PAX\install.cmd has been staged separately.
+              Run as the user who should get the shortcut. No admin rights needed
+              to create it. Uses the WScript.Shell COM object.
        .DESCRIPTION
-              Uses Powershell to create a Start Menu & Desktop shortcut icons.
+              Creates one Desktop shortcut: the script writes
+              "Install IBM PAX.lnk" to the current user's Desktop folder (despite the
+              variable name $PubDesktop, this is not the Public desktop) and creates
+              no Start Menu shortcut. The shortcut runs
+              $env:SystemRoot\System32\cmd.exe with the arguments
+              /C C:\DesktopSupportTools\PAX\install.cmd, its working folder is
+              System32, and its IconLocation is set to ",0". An existing
+              shortcut with the same name is overwritten. The script does not check
+              that install.cmd exists and produces no output.
+
+       .EXAMPLE
+              .\Create-PAXInstallShortCut.ps1
+
+              Creates "Install IBM PAX.lnk" on the current user's Desktop.
 #>
 
 # DO NOT INCLUDE DRIVE, PROGRAM FILES, OR TRAILING BACKSLASH IN PATH

@@ -1,4 +1,50 @@
-﻿#region PS Object Explorer Profile
+﻿<#
+.SYNOPSIS
+    Opens PowerShell Object Explorer, a Windows Forms GUI for browsing objects, WMI classes and the session.
+
+.DESCRIPTION
+    Builds and shows a modal Windows Forms window titled "Powershell Object Explorer".
+    The View menu adds tree nodes for WMI classes, .NET assemblies and classes,
+    PowerShell aliases, commands, drives, modules and variables, Windows features,
+    processes and services, and a set of test-case objects. Selecting a node shows the
+    object's members and values in tabs; the WMI Classes tab queries a selected WMI
+    class with Get-WmiObject against the computers and filter typed into the tab
+    (Localhost by default). The PowerShell tab runs whatever script text is typed into
+    it and shows the result. The Options menu toggles whether objects, structs,
+    collections, nulls and empty strings are shown; on load, Show Objects, Show Structs
+    and Show Collections are switched on by Get-PSObjectExplorerProfile, which can be
+    edited to preload other nodes.
+
+    The script defines its helper functions, then calls Generate-PSObjectExplorerForm,
+    which blocks until the window is closed. It makes no changes on its own and writes
+    nothing to the pipeline; changes only happen through code typed into the PowerShell
+    tab.
+
+.EXAMPLE
+    .\PSObjectBrowser.ps1
+
+    Opens the explorer window. The prompt returns when the window is closed.
+
+.EXAMPLE
+    $VerbosePreference = 'Continue'; .\PSObjectBrowser.ps1
+
+    Opens the window and writes the script's Write-Verbose trace messages to the
+    console, which helps when debugging it.
+
+.NOTES
+    Third-party script: the About box credits Brian Nadjiwon. Only the script-level help
+    is documented here; the inner functions are not.
+
+    Requires Windows PowerShell 5.1 on Windows with a desktop session. It uses
+    System.Windows.Forms.MainMenu and MenuItem, which are not available in
+    PowerShell 7, and Get-WmiObject for the WMI view. The Windows Features view calls
+    Get-WindowsFeature, which needs the ServerManager module (Windows Server). Querying
+    WMI on remote computers needs network access and rights on those computers. No
+    admin rights needed to open the window.
+#>
+
+
+#region PS Object Explorer Profile
 
 Function Get-PSObjectExplorerProfile()
 {
