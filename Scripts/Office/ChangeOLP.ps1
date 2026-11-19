@@ -1,3 +1,36 @@
+<#
+.SYNOPSIS
+    Shows a Windows Forms dialog that adds or removes an Office 365 language pack.
+
+.DESCRIPTION
+    Hides the PowerShell console window and opens a dialog ("Office 365 Language Pack
+    Installer") with a drop-down list of 21 language packs and one button.
+
+    The button text shows Add or Remove for the selected language, based on whether the
+    uninstall registry key
+    HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\O365ProPlusRetail - <language>
+    exists. Clicking the button writes configure.xml to the current directory (overwriting
+    any existing file) with an <Add> or <Remove> element for that LanguagePack, 64-bit
+    edition, FORCEAPPSHUTDOWN=TRUE and a full UI with the EULA accepted, then runs
+    .\setup.exe /configure .\configure.xml from the current directory and waits for it to
+    finish. When setup exits, the button text is refreshed from the registry again.
+
+    Running Office applications are closed by setup without saving work. The script
+    writes no pipeline output of its own apart from the result of the call that hides
+    the console window.
+
+.EXAMPLE
+    Set-Location 'C:\ODT'; .\ChangeOLP.ps1
+
+    Opens the dialog. C:\ODT must contain the Office Deployment Tool setup.exe; the
+    generated configure.xml is written there too.
+
+.NOTES
+    Requires Windows, an interactive desktop session, administrator rights (setup.exe
+    changes the Office installation), the Office Deployment Tool setup.exe in the current
+    directory, and internet access: setup downloads the language pack (the dialog says
+    about 500 MB). Assumes 64-bit Office 365 ProPlus (O365ProPlusRetail) Click-to-Run.
+#>
 # Hide PowerShell Console window.
 Add-Type -Name Window -Namespace Console -MemberDefinition '
 [DllImport("Kernel32.dll")]

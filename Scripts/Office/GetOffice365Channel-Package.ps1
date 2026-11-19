@@ -1,4 +1,30 @@
-﻿if ($env:PROCESSOR_ARCHITEW6432 -eq "AMD64") {
+﻿<#
+.SYNOPSIS
+    Outputs the Microsoft 365 Apps (Office Click-to-Run) update channel name.
+
+.DESCRIPTION
+    When started from 32-bit PowerShell on 64-bit Windows (PROCESSOR_ARCHITEW6432 is
+    AMD64), the script re-runs itself in 64-bit Windows PowerShell through the sysnative
+    path, passing its own text as -EncodedCommand, writes that output and exits with its
+    exit code. This lets 32-bit deployment agents read the 64-bit registry.
+
+    In 64-bit PowerShell it reads CDNBaseUrl from
+    HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration and outputs the matching
+    channel name: Current Channel, Semi-Annual Enterprise Channel, Semi-Annual
+    Enterprise Channel (Preview), Beta Channel, Current Channel (Preview), DevMain
+    Channel or Monthly Enterprise Channel. A URL that is not in the table produces no
+    output. If the key does not exist, Get-ItemProperty writes an error. Read-only.
+
+.EXAMPLE
+    .\GetOffice365Channel-Package.ps1
+
+    Current Channel
+
+.NOTES
+    None. Reads HKLM without administrator rights. The 32-bit relaunch starts
+    powershell.exe (Windows PowerShell), not pwsh.
+#>
+if ($env:PROCESSOR_ARCHITEW6432 -eq "AMD64") {
     $x64PS = Join-Path $PSHome.tolower().replace("syswow64", "sysnative").replace("system32", "sysnative") powershell.exe
     $cmd = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($myinvocation.MyCommand.Definition))
     $out = & "$x64PS" -NonInteractive -NoProfile -ExecutionPolicy Bypass -EncodedCommand $cmd

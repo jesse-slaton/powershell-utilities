@@ -1,3 +1,29 @@
+<#
+.SYNOPSIS
+    Outputs whether the installed Office Click-to-Run is 32-bit or 64-bit.
+
+.DESCRIPTION
+    Opens the 64-bit view of HKLM and reads the Platform value from
+    SOFTWARE\Microsoft\Office\ClickToRun\Configuration. Outputs "32-bit" for x86,
+    "64-bit" for x64, or "Unknown Office Platform: <value>" for anything else.
+
+    When the Platform value is missing it outputs "The Platform value is not set. Unable
+    to determine Office bitness."; when the Configuration key is missing it outputs
+    "Office Click-to-Run configuration is not found. Office may not be installed.". An
+    exception is output as "An error occurred: <message>". Read-only. The script defines
+    the Get-OfficeClickToRunBitness function and calls it once.
+
+.EXAMPLE
+    .\GetOffice365Bitness.ps1
+
+    64-bit
+
+.NOTES
+    None. Reads HKLM without administrator rights. Only Click-to-Run installations are
+    detected; MSI-based Office is reported as not found.
+#>
+
+
 function Get-OfficeClickToRunBitness {
     try {
         # Open the 64-bit view of the Local Machine registry hive directly
