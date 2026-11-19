@@ -1,4 +1,46 @@
-﻿function Get-UserCredentials{
+﻿#Requires -Modules @{ ModuleName = 'ServiceNow'; ModuleVersion = '5.0.0' }
+<#
+.SYNOPSIS
+    Prompts for domain credentials, checks them against Active Directory, and reads every
+    ServiceNow user record into $Users.
+
+.DESCRIPTION
+    Get-UserCredentials prompts for domain\username and password and binds to the
+    current domain over LDAP with them. On a wrong password it warns, counts the attempt
+    and asks again; after three failures it also waits 30 seconds before each further
+    prompt. Once the bind succeeds, the script opens a ServiceNow session with the
+    username (without the domain) and the password, using New-ServiceNowSession from the
+    ServiceNow module, and reads every record of the sys_user table with
+    Get-ServiceNowRecord into $Users. Nothing is written to the pipeline, and despite its
+    name the script creates no incidents. Read-only.
+
+.PARAMETER ServiceNowUrl
+    Host name of the ServiceNow instance, without https:// (for example
+    <instance>.service-now.com). Defaults to a placeholder that must be replaced.
+
+.EXAMPLE
+    .\Create-BulkSNIncidents.ps1 -ServiceNowUrl <instance>.service-now.com
+
+    Prompts for credentials and reads the sys_user table of that instance.
+
+.EXAMPLE
+    . .\Create-BulkSNIncidents.ps1 -ServiceNowUrl <instance>.service-now.com
+    $Users.Count
+
+    Dot-sources the script so that $Users stays in the session, then counts the records.
+
+.NOTES
+    Requires the ServiceNow module 5.0.0 or later (Install-Module ServiceNow), which
+    replaced the copy of v1.1.0 removed in #39. Needs network access to the domain and to
+    the ServiceNow instance, and an account that ServiceNow accepts for basic
+    authentication with read access to sys_user.
+#>
+param(
+    # ServiceNow instance host name, without https://.
+    [string]$ServiceNowUrl = 'contoso.service-now.com'
+)
+
+function Get-UserCredentials{
     $counter = 0
     $more = $true
     while($more){
@@ -46,21 +88,10 @@
     }
 } #end Function Get-UserCredentials
 
-$URI = "https://contoso.service-now.com/api/now/table/sys_user"
-Get-UserCredentials
+Get-UserCredentials | Out-Null
 
+# ServiceNow gets the username without the domain, as the former hand-built Basic header did.
+$ServiceNowCredential = New-Object System.Management.Automation.PSCredential $Script:userName, $Script:password
+New-ServiceNowSession -Url $ServiceNowUrl -Credential $ServiceNowCredential
 
-$base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $username, ([Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password))))))
-
-$headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-$headers.Add('Authorization',('Basic {0}' -f $base64AuthInfo))
-$headers.Add('Accept','application/json')
-$headers.Add('Content-Type','application/json')
-
-# Specify endpoint uri
-# Set above in environment logic
-
-# Specify HTTP method
-$method = "get"
-
-$Users = Invoke-RestMethod -Headers $headers -Method $method -Uri $URI 
+$Users = Get-ServiceNowRecord -Table sys_user

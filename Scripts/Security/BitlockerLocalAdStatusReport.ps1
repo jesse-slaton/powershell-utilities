@@ -257,9 +257,11 @@ $ConversionStatusHash = @{
   '5' = 'Decryption Paused'
 }
 
+# '.' and 'localhost' mean this computer; use its real name for the AD lookup too.
+if ($ComputerName -in @('.', 'localhost')) { $ComputerName = $env:COMPUTERNAME }
 # Query the local computer directly; pass -ComputerName (WinRM) only for a remote computer.
 $CimTarget = @{}
-if ($ComputerName -notin @($env:COMPUTERNAME, '.', 'localhost')) { $CimTarget.ComputerName = $ComputerName }
+if ($ComputerName -ne $env:COMPUTERNAME) { $CimTarget.ComputerName = $ComputerName }
 $ADFVEData = Get-CimInstance -Namespace root/CIMv2/Security/MicrosoftVolumeEncryption -ClassName Win32_EncryptableVolume -Filter "DriveLetter IS NOT NULL" @CimTarget
 $ADBitlockeVolumesrInfo = GetADBitlockerInfo -name $ComputerName
 $BitlockerStatus = @()
