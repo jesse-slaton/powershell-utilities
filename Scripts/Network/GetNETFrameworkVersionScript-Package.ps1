@@ -1,3 +1,39 @@
+<#
+.SYNOPSIS
+    Generates the source of a script that lists installed .NET Framework versions with their product names.
+
+.DESCRIPTION
+    Downloads the Markdown of the Microsoft docs article "How to determine which .NET
+    Framework versions are installed" from the dotnet/docs repository on GitHub and
+    parses its tables into a lookup of Release value to .NET Framework version.
+
+    Outputs, as a single string, the text of a new script that contains that $Lookup
+    table and, when run, reads HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP and
+    returns one object per installed framework entry with .NET Framework, Product,
+    Version, Release, PSComputerName and WindowsVersion. This script does not run the
+    generated code and changes nothing; save the output to a .ps1 file to use it.
+
+.EXAMPLE
+    .\GetNETFrameworkVersionScript-Package.ps1 | Set-Content -Path .\Get-NetFrameworkVersion.ps1
+
+    Saves the generated script to a file.
+
+.EXAMPLE
+    .\GetNETFrameworkVersionScript-Package.ps1 | Set-Content -Path .\Get-NetFrameworkVersion.ps1
+    Get-Content -Path .\Get-NetFrameworkVersion.ps1
+    .\Get-NetFrameworkVersion.ps1
+
+    Saves the generated script, shows it so you can review it, then runs it to list
+    the installed .NET Framework versions. The generated text is built from content
+    downloaded from GitHub, so review it before running it rather than piping it to
+    Invoke-Expression.
+
+.NOTES
+    Requires network access to raw.githubusercontent.com. The parsing depends on the
+    article's path on the master branch and on its table layout; if either has
+    changed the lookup will be empty or wrong. No admin rights needed. Works in
+    Windows PowerShell 5.1 and PowerShell 7.
+#>
 # Get the text from github
 $url = "https://raw.githubusercontent.com/dotnet/docs/master/docs/framework/migration-guide/how-to-determine-which-versions-are-installed.md"
 $md = Invoke-WebRequest $url -UseBasicParsing
