@@ -16,7 +16,7 @@
     (Paint 3D, Calculator, Store, Photos, Ubuntu on Windows, some Xbox overlay and
     identity components, Sticky Notes and MS Paint) to Remove-AppxPackage without
     -AllUsers, so the removal applies to the user running the script. It also removes
-    every non-whitelisted provisioned package (Remove-AppxProvisionedPackage -Online),
+    every provisioned package not on that allowlist (Remove-AppxProvisionedPackage -Online),
     which keeps those apps from being installed for new user profiles. This pass
     goes far beyond the list in pass 1 and does not suppress errors, so packages that
     cannot be removed produce error records.
@@ -28,7 +28,7 @@
     & '.\Debloat Windows.ps1'
 
     Removes the listed apps for all users and from the provisioned image, then removes
-    every non-whitelisted AppX package for the current user and from the provisioned
+    every AppX package not on the allowlist for the current user and from the provisioned
     image.
 
 .NOTES
