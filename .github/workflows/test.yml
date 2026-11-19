@@ -44,6 +44,7 @@ jobs:
       - name: Run Pester
         run: |
           Import-Module Pester -RequiredVersion 5.6.1
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.23.0
           $config = New-PesterConfiguration
           $config.Run.Path = './Tests'
           $config.Run.Exit = $true
@@ -57,6 +58,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.23.0
           './Scripts', './Modules' |
             ForEach-Object { Invoke-ScriptAnalyzer -Path $_ -Recurse -Severity Warning } |
             Sort-Object ScriptName, Line |
