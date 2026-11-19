@@ -47,3 +47,13 @@ foreach ($module in @(
     # -SkipPublisherCheck: Windows PowerShell 5.1 ships an old, differently signed Pester 3.4.
     Install-Module -Name $module.Name -RequiredVersion $module.Version -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber
 }
+
+# Load the pinned versions into this session so a dot-sourced run (. ./Tests/Install-TestDependencies.ps1)
+# uses them instead of whichever version autoloads first. CI imports them again in its own test step.
+foreach ($module in @(
+        @{ Name = 'Pester'; Version = $PesterVersion }
+        @{ Name = 'PSScriptAnalyzer'; Version = $ScriptAnalyzerVersion }
+    )) {
+    Get-Module -Name $module.Name | Where-Object Version -NE $module.Version | Remove-Module -Force
+    Import-Module -Name $module.Name -RequiredVersion $module.Version -Force -Global
+}

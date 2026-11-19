@@ -5,7 +5,7 @@ Pester 5 suite. Running it never executes a script under test.
 ## Running
 
 ```powershell
-./Tests/Install-TestDependencies.ps1   # pinned Pester 5.6.1 and PSScriptAnalyzer 1.23.0
+. ./Tests/Install-TestDependencies.ps1   # installs and imports pinned Pester 5.6.1 and PSScriptAnalyzer 1.23.0
 Invoke-Pester ./Tests
 ```
 
