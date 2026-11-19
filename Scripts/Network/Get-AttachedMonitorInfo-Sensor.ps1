@@ -58,8 +58,10 @@
 
 .NOTES
     Requires Windows and the root\WMI monitor classes (present on Windows 7 and later).
-    Querying a remote computer needs WMI/DCOM access to it. Uses Get-WmiObject, so it
-    runs on Windows PowerShell 5.1; conversion to CIM is tracked in issue #49.
+    Uses the CIM cmdlets; runs on Windows PowerShell 5.1 and PowerShell 7. The local
+    computer is queried without -ComputerName, so it needs no WinRM. A remote computer
+    is queried with Get-CimInstance -ComputerName, which uses WinRM (WS-Management), so
+    WinRM must be enabled on it and reachable.
 #>
 
 [CmdletBinding()]
@@ -157,9 +159,15 @@ ForEach ($Computer in $ComputerName) {
         "Running PowerShell $($PSVersionTable.PSVersion)."
     }
 
+    #Query the local computer directly; pass -ComputerName (WinRM) only for a remote computer.
+    $CimTarget = @{}
+    if ($Computer -notin @($env:ComputerName, '.', 'localhost')) {
+        $CimTarget.ComputerName = $Computer
+    }
+
     #Grabs the Monitor objects from WMI
-    $Monitors = Get-WMIObject -Namespace root\WMI -Class "WMIMonitorID" `
-        -ComputerName $Computer -ErrorAction SilentlyContinue
+    $Monitors = Get-CimInstance -Namespace root\WMI -ClassName "WMIMonitorID" `
+        @CimTarget -ErrorAction SilentlyContinue
 
     #Creates an empty array to hold the data
     $Monitor_Array = @()
@@ -169,23 +177,23 @@ ForEach ($Computer in $ComputerName) {
 
         $filter = ("InstanceName = '$($monitor.InstanceName)'").Replace("`\", "`\`\")
         #Get Horizontal and Vertical screen measurements, and calculate the diagonal size.
-        $BasicDisplayParameters = Get-WMIObject -Namespace root\WMI `
-            -ClassName WmiMonitorBasicDisplayParams -ComputerName $Computer `
+        $BasicDisplayParameters = Get-CimInstance -Namespace root\WMI `
+            -ClassName WmiMonitorBasicDisplayParams @CimTarget `
             -Filter $filter -ErrorAction SilentlyContinue
         $a = [System.Math]::Pow($BasicDisplayParameters.MaxHorizontalImageSize / 2.54, 2)
         $b = [System.Math]::Pow($BasicDisplayParameters.MaxVerticalImageSize / 2.54, 2)
         [string]$Mon_Size = [System.Math]::Round([System.Math]::Sqrt($a + $b))
 
         #Get monitor output ID and lookup friendly name (eg: DisplayPort)
-        $ConnectionParameters = Get-WMIObject -Namespace root\WMI `
-            -ClassName WmiMonitorConnectionParams -ComputerName $Computer `
+        $ConnectionParameters = Get-CimInstance -Namespace root\WMI `
+            -ClassName WmiMonitorConnectionParams @CimTarget `
             -Filter $filter -ErrorAction SilentlyContinue
         [string]$OutputType = $ConnectionParameters.VideoOutputTechnology
         $Mon_Output_Type = $InputTypeHash.$OutputType
 
         #Find the maximum screen resolution supported by the display
-        $maxres = Get-WMIObject -Namespace root\wmi `
-            -ClassName WmiMonitorListedSupportedSourceModes -ComputerName $Computer `
+        $maxres = Get-CimInstance -Namespace root\wmi `
+            -ClassName WmiMonitorListedSupportedSourceModes @CimTarget `
             -Filter $filter -ErrorAction SilentlyContinue |
             Select-Object -ExpandProperty MonitorSourceModes |
             Sort-Object -Property { $_.HorizontalActivePixels * $_.VerticalActivePixels } -Descending |

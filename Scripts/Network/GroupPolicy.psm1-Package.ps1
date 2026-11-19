@@ -758,7 +758,7 @@ Function Test-IsDomainController() {
     [OutputType([bool])]
     Param()
 
-    $os = Get-WmiObject -Class 'Win32_OperatingSystem' -Filter 'Primary=true' | Select-Object ProductType
+    $os = Get-CimInstance -ClassName 'Win32_OperatingSystem' -Filter 'Primary=true' | Select-Object ProductType
 
     # 1 = workstation, 2 = domain controller, 3 = member server
     return $os.ProductType -eq 2
@@ -779,7 +779,7 @@ Function Test-IsDomainJoined() {
     [OutputType([bool])]
     Param()
 
-    $computer = Get-WmiObject -Class 'Win32_ComputerSystem' | Select-Object PartOfDomain
+    $computer = Get-CimInstance -ClassName 'Win32_ComputerSystem' | Select-Object PartOfDomain
 
     return $computer.PartOfDomain
 }

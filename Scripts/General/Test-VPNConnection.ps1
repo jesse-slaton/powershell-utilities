@@ -106,10 +106,10 @@
     {
         Try
         {
-            [psobject[]]$AllNetworkAdapter           = Get-WmiObject Win32_NetworkAdapter -ErrorAction 'Stop' |
+            [psobject[]]$AllNetworkAdapter           = Get-CimInstance -ClassName Win32_NetworkAdapter -ErrorAction 'Stop' |
                                                        Select-Object -Property DeviceID, PNPDeviceID, Manufacturer
             
-            [psobject[]]$AllNetworkAdapterConfigTemp = Get-WmiObject Win32_NetworkAdapterConfiguration -ErrorAction 'Stop' |
+            [psobject[]]$AllNetworkAdapterConfigTemp = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -ErrorAction 'Stop' |
                                                        Select-Object -Property @{L='DeviceID'; E={$_.Index}}, DNSDomain, DefaultIPGateway, DHCPServer, IPEnabled, PhysicalAdapter, Manufacturer, Description
             
             ForEach ($AdapterConfig in $AllNetworkAdapterConfigTemp)
