@@ -5,8 +5,8 @@
 .DESCRIPTION
     Queries Win32_NetworkAdapterConfiguration for adapters with IPEnabled = TRUE and
     calls SetTcpipNetbios(2) on each one, which sets the adapter's NetBIOS setting to
-    Disabled. Outputs the WMI method result object for each adapter; check its
-    ReturnValue property for the outcome.
+    Disabled. Outputs the CIM method result object for each adapter; check its
+    ReturnValue property for the outcome (0 means success).
 
 .EXAMPLE
     .\DisableNetBIOS.ps1
@@ -14,10 +14,10 @@
     Disables NetBIOS over TCP/IP on all IP-enabled adapters.
 
 .NOTES
-    Requires administrator rights. Uses Get-WmiObject, which exists only in Windows
-    PowerShell 5.1 (not PowerShell 7).
+    Requires administrator rights. Uses the CIM cmdlets, so it runs on Windows
+    PowerShell 5.1 and PowerShell 7.
 #>
-$nics = Get-WmiObject -Query 'SELECT * from Win32_NetworkAdapterConfiguration WHERE IPEnabled = TRUE'
+$nics = Get-CimInstance -Query 'SELECT * from Win32_NetworkAdapterConfiguration WHERE IPEnabled = TRUE'
 ForEach ($nic in $nics) {
-    $nic.SetTcpipNetbios(2)
+    Invoke-CimMethod -InputObject $nic -MethodName SetTcpipNetbios -Arguments @{ TcpipNetbiosOptions = [uint32]2 }
 }
