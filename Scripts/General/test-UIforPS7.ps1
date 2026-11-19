@@ -1,3 +1,26 @@
+<#
+.SYNOPSIS
+    Demo of a cross-platform Avalonia window from PowerShell 7 with a button that fills a text box.
+
+.DESCRIPTION
+    Builds a window from inline Avalonia XAML with one button ("My Button") and one text
+    box, then shows it with Show-AvaloniaWindow. Clicking the button puts
+    "Hello, World from <OS> running PowerShell Core <Version>" in the text box, using
+    $PSVersionTable.OS and $PSVersionTable.PSVersion. Makes no changes and writes
+    nothing to the pipeline.
+
+.EXAMPLE
+    .\test-UIforPS7.ps1
+
+    Opens the demo window.
+
+.NOTES
+    Written for PowerShell 7 (in Windows PowerShell 5.1, $PSVersionTable.OS is empty).
+    Requires a module that provides ConvertTo-AvaloniaWindow, Find-AvaloniaControl and
+    Show-AvaloniaWindow (such as PSAvalonia), already imported or auto-loadable. Needs
+    a desktop session.
+#>
+
 $Xaml = '<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"

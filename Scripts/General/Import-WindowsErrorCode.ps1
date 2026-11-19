@@ -1,5 +1,53 @@
-﻿Function Import-WindowsErrorCode
+﻿<#
+.SYNOPSIS
+    Defines Import-WindowsErrorCode, which scrapes Windows error codes from MSDN pages.
+
+.DESCRIPTION
+    Defines the Import-WindowsErrorCode function and does nothing else: running the
+    script without dot-sourcing it produces no output and leaves nothing defined. The
+    function downloads MSDN system error code and WinINet error pages, writes their
+    text to C:\Temp\TempData.txt, and outputs one object per error code (ErrorString,
+    ExitCode, Hex Value, Description). See Get-Help Import-WindowsErrorCode -Full.
+
+.EXAMPLE
+    . .\Import-WindowsErrorCode.ps1
+    $Codes = Import-WindowsErrorCode
+
+    Dot-sources the script and stores the scraped list in $Codes.
+
+.NOTES
+    Requires Windows PowerShell 5.1: it uses the AllElements property of
+    Invoke-WebRequest results, which PowerShell 7 does not provide. Needs network
+    access to msdn.microsoft.com and an existing, writable C:\Temp folder. No admin
+    rights needed otherwise.
+#>
+
+
+Function Import-WindowsErrorCode
 {
+<#
+.SYNOPSIS
+    Builds a list of Windows system and WinINet error codes by scraping MSDN pages.
+
+.DESCRIPTION
+    Downloads ten MSDN "System Error Codes" pages and the WinINet error page with
+    Invoke-WebRequest, takes the text of each page's "mainsection" element, and cuts
+    out the error list. The text is written to C:\Temp\TempData.txt (overwritten) and
+    read back as lines, then parsed into objects with the properties ErrorString,
+    ExitCode, Hex Value and Description, sorted by ExitCode. The objects are written
+    to the output. The URLs are the old msdn.microsoft.com addresses; if those pages
+    have moved or changed layout, the parsing does not find the expected text.
+
+.EXAMPLE
+    Import-WindowsErrorCode | Where-Object ExitCode -eq 5
+
+    Scrapes the pages and shows any entries whose ExitCode is 5.
+
+.EXAMPLE
+    Import-WindowsErrorCode -Verbose | ConvertTo-Json | Set-Content .\ErrorCodes.json
+
+    Saves the scraped list as JSON, showing progress messages.
+#>
 [cmdletbinding()]
 Param()
 

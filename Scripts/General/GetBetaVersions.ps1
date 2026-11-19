@@ -1,3 +1,29 @@
+<#
+.SYNOPSIS
+    Unfinished: downloads the Microsoft 365 Apps Beta Channel update history page and parses it with AngleSharp.
+
+.DESCRIPTION
+    Loads AngleSharp.dll from a hard-coded folder (writing an error if the file is not
+    there), downloads
+    https://learn.microsoft.com/en-us/officeupdates/update-history-beta-channel with
+    Invoke-WebRequest, and parses the HTML into an AngleSharp document stored in
+    $document. Nothing is extracted or written to the output; the script stops after
+    parsing. Read-only. When dot-sourced, $document is left in the session for further
+    work.
+
+.EXAMPLE
+    . .\GetBetaVersions.ps1
+    $document.Title
+
+    Dot-sources the script, then reads the parsed page's title from $document.
+
+.NOTES
+    Requires AngleSharp.dll at the hard-coded path in the script (a personal OneDrive
+    folder; edit it for your system) and network access to learn.microsoft.com. If the
+    DLL is missing, the AngleSharp type cannot be created and the script fails. No
+    admin rights needed.
+#>
+
 # Use $PSScriptRoot to get the script's directory
 $angleSharpDllPath = Join-Path -Path "D:\OneDrive - Doxazo\Documents\PowerShell\Scripts\O365Version" -ChildPath "AngleSharp.dll"
 
