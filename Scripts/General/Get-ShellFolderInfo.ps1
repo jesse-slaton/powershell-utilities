@@ -1,4 +1,34 @@
-﻿#Query Altiris Agent's most recent basic inventory to determine the primary user account information
+﻿<#
+.SYNOPSIS
+    Deletes shortcuts to Avaya CMS Supervisor versions other than R18 for the primary user and all users.
+
+.DESCRIPTION
+    Despite its name, this script removes shortcuts. It reads the Altiris Agent's
+    basic inventory (the Altiris.BasicInventory COM object) to find the primary user
+    from the "AeX AC Primary User" data class, translates that account to a SID, and
+    reads the user's Desktop and Start Menu paths from
+    HKEY_USERS\<SID>\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders
+    (creating an HKU: PSDrive if one does not exist). It then searches those two
+    folders plus the common Desktop and common Start Menu, recursively, for .lnk files
+    whose target path contains "CMS Supervisor" but not "R18", and deletes them.
+
+    Writes "Removed: <ShortcutName> removed." for each shortcut it deletes. When the
+    HKU: drive is created, the new PSDrive object is also written to the output.
+
+.EXAMPLE
+    .\Get-ShellFolderInfo.ps1
+
+    Removes old CMS Supervisor shortcuts and lists each one it removed.
+
+.NOTES
+    Requires the Altiris (Symantec Management) Agent with basic inventory data, and
+    administrator rights (reads another user's registry hive and deletes from the
+    common Desktop and Start Menu). The primary user's hive must be loaded under
+    HKEY_USERS, which is normally only true while that user is logged on. Uses COM
+    objects, so Windows only.
+#>
+
+#Query Altiris Agent's most recent basic inventory to determine the primary user account information
 $BasicInventory = New-Object -ComObject Altiris.BasicInventory
 [xml]$inventory = $BasicInventory.Inventory
 $PrimaryUser = ($inventory.message.body.inventory.dataClass | `

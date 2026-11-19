@@ -1,3 +1,24 @@
+<#
+.SYNOPSIS
+    Disables and re-enables every monitor device to reset the displays.
+
+.DESCRIPTION
+    Finds all Win32_PnPEntity devices whose Service is "monitor". For each one it runs
+    Disable-PnpDevice, waits 2 seconds, then runs Enable-PnpDevice (both with
+    -Confirm:$false). Screens may go blank briefly while this runs. Writes
+    "Monitor reset process completed." with Write-Host when done.
+
+.EXAMPLE
+    .\ResetDisplay.ps1
+
+    Monitor reset process completed.
+
+.NOTES
+    Requires administrator rights (Disable-PnpDevice and Enable-PnpDevice) and the
+    PnpDevice module that ships with Windows 8 / Server 2012 and later. Changes device
+    state.
+#>
+
 # Get all monitor instances
 $monitors = Get-CimInstance -Namespace root\CIMV2 -ClassName Win32_PnPEntity | Where-Object { $_.Service -eq "monitor" }
 

@@ -1,4 +1,39 @@
 #Requires -Version 3.0
+
+<#
+.SYNOPSIS
+    Checks Network Connectivity Status Indicator (NCSI) probes and writes a one-line summary.
+
+.DESCRIPTION
+    Reads the NCSI settings under
+    HKLM:\SYSTEM\CurrentControlSet\Services\NlaSvc\Parameters\Internet and:
+
+    - resolves ActiveWebProbeHost and ActiveDnsProbeHost as DNS A records
+      (Resolve-DnsName -DnsOnly)
+    - requests http://<ActiveWebProbeHost>/<ActiveWebProbePath> and compares the
+      content with ActiveWebProbeContent. The result is True on a match and False if
+      the request throws; on a mismatch without an error it stays empty.
+    - reads the IP-enabled adapters from Win32_NetworkAdapterConfiguration and computes
+      the network address of each adapter's first IP address. Only the last adapter
+      processed is kept.
+
+    Writes one line with Write-Host:
+
+        <ProbeHostName>, <ProbeIPs joined by |>, <ProbeResult>, <DnsProbeHostName>, <DnsProbeIP>, <Network>
+
+    Makes no changes.
+
+.EXAMPLE
+    .\ncsidiag-Package.ps1
+
+    Writes the NCSI probe summary for this computer.
+
+.NOTES
+    Needs network access to the NCSI probe hosts (plain HTTP). Requires the DnsClient
+    module (Resolve-DnsName, Windows 8 / Server 2012 or later) and uses Get-WmiObject,
+    so Windows PowerShell 5.1 only. Invoke-WebRequest is called without
+    -UseBasicParsing. No admin rights needed.
+#>
 $NCSIProbeHost = (Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\NlaSvc\Parameters\Internet).ActiveWebProbeHost
 $NCSIDNSAddress = (Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\NlaSvc\Parameters\Internet).ActiveDnsProbeHost
 $ResolvedNCSIProbeHost = Resolve-DnsName -Name $NCSIProbeHost -DnsOnly -Type A

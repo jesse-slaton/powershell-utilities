@@ -1,4 +1,31 @@
-﻿###Customize These Variables###
+﻿<#
+.SYNOPSIS
+    Creates "Manage Distribution Lists" shortcuts that open the Active Directory Find dialog.
+
+.DESCRIPTION
+    Deletes any existing "Manage Distribution Lists.lnk" and "DSQuery.lnk" from the Public
+    desktop ($env:PUBLIC\Desktop) and the all-users Start Menu
+    ($env:ProgramData\Microsoft\Windows\Start Menu\Programs), then creates
+    "Manage Distribution Lists.lnk" in both places. Each shortcut runs
+    %SYSTEMROOT%\System32\rundll32.exe with the arguments "dsquery,OpenQueryWindow"
+    (the Find Users, Contacts, and Groups dialog) and uses icon 74 of
+    c:\windows\system32\imageres.dll. The name, target, arguments and icon are set in
+    variables at the top of the script. If saving a shortcut fails, the error record is
+    written to the output; otherwise the script produces no output.
+
+.EXAMPLE
+    & '.\DSQuery Shortcut.ps1'
+
+    Replaces the old DSQuery shortcuts with "Manage Distribution Lists" shortcuts for all
+    users.
+
+.NOTES
+    Requires administrator rights (writes to the Public desktop and the all-users Start
+    Menu). The dialog is only useful on a domain-joined computer. Uses the WScript.Shell
+    COM object, so Windows only.
+#>
+
+###Customize These Variables###
 #Shortcut Program Path.  Environmental Variables Are allowed.
 $Program = "%SYSTEMROOT%\System32\rundll32.exe"
 #Shortcut Argument. Leave blank double quotes ("") If none are required.
