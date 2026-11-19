@@ -11,9 +11,11 @@
 .EXAMPLE
     .\FindPSTSensor.ps1
 
-    C:\Users\Public\Archive.pst|2048|2026-01-15
+    C:\Users\Public\Archive.pst|<LastWriteTime>
 
-    (Columns depend on the properties stored in PSTFiles.json.)
+    FindPSTFiles-Package.ps1 stores FullName and LastWriteTime, so each line has those two
+    columns. How LastWriteTime is rendered depends on how the PowerShell version that wrote
+    the JSON serialized the date.
 
 .NOTES
     Requires the inventory file produced by the PST discovery package. No admin rights
