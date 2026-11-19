@@ -75,7 +75,7 @@ param (
 
 #List of Manufacture Codes that could be pulled from WMI and their respective full names.
 $ManufacturerHash = @{
-    "ACI" = " Asus";
+    "ACI" = "Asus";
     "ACR" = "Acer";
     "APP" = "Apple Computer";
     "AUO" = "Asus";
