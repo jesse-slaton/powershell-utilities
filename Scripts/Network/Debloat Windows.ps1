@@ -11,10 +11,13 @@
     users (Remove-AppxPackage -AllUsers), and from the provisioned image
     (Remove-AppxProvisionedPackage -Online). Errors in this pass are suppressed.
 
-    Pass 2: removes every installed package for all users, every package for the
-    current user, and every provisioned package whose name does NOT match the
-    $WhitelistedApps regex (Paint 3D, Calculator, Store, Photos, Ubuntu on Windows,
-    some Xbox overlay and identity components, Sticky Notes and MS Paint). This pass
+    Pass 2: lists the packages of all users (Get-AppxPackage -AllUsers) and of the
+    current user, and pipes those whose name does NOT match the $WhitelistedApps regex
+    (Paint 3D, Calculator, Store, Photos, Ubuntu on Windows, some Xbox overlay and
+    identity components, Sticky Notes and MS Paint) to Remove-AppxPackage without
+    -AllUsers, so the removal applies to the user running the script. It also removes
+    every non-whitelisted provisioned package (Remove-AppxProvisionedPackage -Online),
+    which keeps those apps from being installed for new user profiles. This pass
     goes far beyond the list in pass 1 and does not suppress errors, so packages that
     cannot be removed produce error records.
 
@@ -24,8 +27,9 @@
 .EXAMPLE
     & '.\Debloat Windows.ps1'
 
-    Removes the listed apps and every non-whitelisted AppX package from the computer
-    and from the provisioned image.
+    Removes the listed apps for all users and from the provisioned image, then removes
+    every non-whitelisted AppX package for the current user and from the provisioned
+    image.
 
 .NOTES
     Requires administrator rights (-AllUsers and -Online). Uses the Appx and DISM
