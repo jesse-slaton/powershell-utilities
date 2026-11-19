@@ -7,7 +7,7 @@ if (Test-Path $path) {
     foreach ( $f in $targetFile ) {
         $content  = New-Object System.Xml.XmlDocument
         $content.Load($f.FullName)
-        if $content.OuterXml -match 'Contoso' {
+        if ($content.OuterXml -match 'Contoso') {
         $content.AnyConnectProfile.ClientInitialization.BackupServerList.InnerXML = $NewHostAddressXML
         $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
         $sw = New-Object System.IO.StreamWriter($f.FullName, $false, $utf8WithoutBom)
