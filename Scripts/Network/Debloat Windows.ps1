@@ -1,3 +1,38 @@
+<#
+.SYNOPSIS
+    Removes a list of built-in and sponsored AppX apps, then removes every AppX package that is not on a short keep list.
+
+.DESCRIPTION
+    Runs in two passes.
+
+    Pass 1: for each name pattern in $AppXApps (Bing News, Get Help, Xbox apps, Zune
+    Music and Video, Skype, Mail and Calendar, and sponsored apps such as Candy Crush,
+    Spotify and Twitter), removes the matching package for the current user, for all
+    users (Remove-AppxPackage -AllUsers), and from the provisioned image
+    (Remove-AppxProvisionedPackage -Online). Errors in this pass are suppressed.
+
+    Pass 2: removes every installed package for all users, every package for the
+    current user, and every provisioned package whose name does NOT match the
+    $WhitelistedApps regex (Paint 3D, Calculator, Store, Photos, Ubuntu on Windows,
+    some Xbox overlay and identity components, Sticky Notes and MS Paint). This pass
+    goes far beyond the list in pass 1 and does not suppress errors, so packages that
+    cannot be removed produce error records.
+
+    Writes a Verbose message per pattern in pass 1 (shown only when
+    $VerbosePreference is Continue). Produces no other output.
+
+.EXAMPLE
+    & '.\Debloat Windows.ps1'
+
+    Removes the listed apps and every non-whitelisted AppX package from the computer
+    and from the provisioned image.
+
+.NOTES
+    Requires administrator rights (-AllUsers and -Online). Uses the Appx and DISM
+    cmdlets, so run it in Windows PowerShell 5.1. Changes are destructive; removed
+    provisioned packages are not reinstalled for new users. Revert Changes.ps1 only
+    re-registers packages that are still installed.
+#>
 $AppXApps = @(
 
         #Unnecessary Windows 10 AppX Apps

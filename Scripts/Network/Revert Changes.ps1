@@ -1,3 +1,40 @@
+<#
+.SYNOPSIS
+    Re-registers installed AppX packages and reverses part of the privacy settings applied by Protect Privacy-Package.ps1.
+
+.DESCRIPTION
+    Re-registers every package returned by Get-AppxPackage -AllUsers from its
+    AppXManifest.xml (Add-AppxPackage -DisableDevelopmentMode -Register, with -Verbose).
+    Packages that were fully removed are not listed by Get-AppxPackage and so are not
+    restored.
+
+    Then, writing a status line to the output stream before each step, it sets:
+    - AdvertisingInfo Enabled = 1 and Windows Search policy AllowCortana = 1 (HKLM),
+      only if the keys exist.
+    - Siuf\Rules PeriodInNanoSeconds = 1 (HKCU).
+    - CloudContent DisableWindowsConsumerFeatures = 0 (HKLM policy).
+    - Holographic FirstRunSucceeded = 1 (HKCU), only if the key exists.
+    - PushNotifications NoTileApplicationNotification = 0 (HKCU policy).
+    - AllowTelemetry = 1 under HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection.
+    - PeopleBand = 1 and ContentDeliveryManager SystemPaneSuggestionsEnabled = 1 (HKCU).
+    Missing keys are created except where noted. It re-enables the scheduled tasks
+    XblGameSaveTaskLogon, XblGameSaveTask, Consolidator, UsbCeip, DmClient and
+    DmClientOnScenarioDownload, and sets dmwappushservice and DiagTrack to Automatic
+    and starts them.
+
+    It does not revert the web search, Wi-Fi Sense, location, the other two
+    DataCollection keys, or the other ContentDeliveryManager values.
+
+.EXAMPLE
+    & '.\Revert Changes.ps1'
+
+    Re-registers installed apps and restores the settings listed above.
+
+.NOTES
+    Requires administrator rights (HKLM, -AllUsers, scheduled tasks and services).
+    HKCU changes apply to the user the script runs as. Uses the Appx cmdlets, so run it
+    in Windows PowerShell 5.1.
+#>
 #This function will revert the changes you made when running the Start-Debloat function.
         
     #This line reinstalls all of the bloatware that was removed
