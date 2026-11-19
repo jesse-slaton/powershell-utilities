@@ -37,6 +37,8 @@ Describe 'Get-Something' {
 }
 ```
 
+When two tracked scripts share a name, pass the folder: `Resolve-ScriptUnderTest -Name $PSCommandPath -Category ActiveDirectory`.
+
 If a script keeps its logic in top-level code, the minimal refactor is to move that logic into a
 function and call it from the bottom of the script. The test then loads the function as above.
 
