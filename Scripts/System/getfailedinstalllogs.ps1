@@ -9,4 +9,4 @@ Foreach ($Computer in $computers) {
     }
 }
 
-Get-ChildItem -Path C:\DesktopSupportTools\Logs\ | Where-Object {$_.Name -like '*afc*.wil' -and (Get-Content -Path $_.FullName) }
+Get-ChildItem -Path C:\DesktopSupportTools\Logs\ | Where-Object {$_.Name -like '*afc*.wil' -and $_.Length -gt 0 }
