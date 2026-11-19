@@ -1,3 +1,28 @@
+<#
+.SYNOPSIS
+    Lists Active Directory computers whose DNS name resolves to the same IPv4 address as another computer.
+
+.DESCRIPTION
+    Gets every computer in the current domain with Get-ADComputer -Properties
+    IPv4Address (the ActiveDirectory module resolves IPv4Address through DNS), finds
+    the IPv4 addresses that occur more than once, and collects each computer whose
+    address matches one of them.
+
+    Outputs a Format-Table of Name and IPv4Address for those computers. When an
+    address is shared by three or more computers, each of them is listed more than
+    once. Changes nothing.
+
+.EXAMPLE
+    .\multipleips.ps1
+
+    Shows the computers that share an IPv4 address in DNS.
+
+.NOTES
+    Requires the ActiveDirectory module (RSAT), a domain-joined computer and read
+    access to the domain and DNS. Can take a long time in a large domain because each
+    computer's address is looked up in DNS. No admin rights needed. Works in Windows
+    PowerShell 5.1 and in PowerShell 7 on Windows with the ActiveDirectory module.
+#>
 #Import the Active Directory Module
 Import-Module ActiveDirectory
 
