@@ -19,10 +19,14 @@
     Saves the generated script to a file.
 
 .EXAMPLE
-    .\GetNETFrameworkVersionScript-Package.ps1 | Invoke-Expression
+    .\GetNETFrameworkVersionScript-Package.ps1 | Set-Content -Path .\Get-NetFrameworkVersion.ps1
+    Get-Content -Path .\Get-NetFrameworkVersion.ps1
+    .\Get-NetFrameworkVersion.ps1
 
-    Generates the script and runs it at once, listing the installed .NET Framework
-    versions.
+    Saves the generated script, shows it so you can review it, then runs it to list
+    the installed .NET Framework versions. The generated text is built from content
+    downloaded from GitHub, so review it before running it rather than piping it to
+    Invoke-Expression.
 
 .NOTES
     Requires network access to raw.githubusercontent.com. The parsing depends on the
