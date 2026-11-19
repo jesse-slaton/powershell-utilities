@@ -16,8 +16,7 @@
               Run as the user who should get the shortcut. No admin rights needed
               to create it. Uses the WScript.Shell COM object.
        .DESCRIPTION
-              Uses Powershell to create a Start Menu & Desktop shortcut icons.
-              Only the Desktop shortcut is created: the script writes
+              Creates one Desktop shortcut: the script writes
               "Install IBM PAX.lnk" to the current user's Desktop folder (despite the
               variable name $PubDesktop, this is not the Public desktop) and creates
               no Start Menu shortcut. The shortcut runs
