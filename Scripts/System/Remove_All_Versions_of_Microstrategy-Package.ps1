@@ -6,8 +6,11 @@
     Reads the 64-bit and 32-bit (Wow6432Node) HKLM Uninstall keys and builds an
     inventory of installed programs (updates, hotfixes and service packs excluded).
     Every entry whose DisplayName matches *Microstrategy*Enterprise* and whose version
-    is not exactly $KeepVersion (empty keeps none) is uninstalled by running the
-    executable from its UninstallString with
+    is not exactly $KeepVersion (empty keeps none) is meant to be uninstalled by running
+    the executable from its UninstallString. The loop builds the path from
+    $Uninstalls.UninstallString (all matching entries) rather than the current entry, so
+    this works only when exactly one entry matches; with several matches every pass gets
+    all of the paths at once. Arguments:
     "-runfromtemp -l0x0409 -removeonly /hide_progress --silent" and installer logs in
     C:\DesktopSupportTools\Logs. Exit codes 0, 3010 and 1641 are reported as success or
     restart required; any other exit code takes an error branch meant to stop the

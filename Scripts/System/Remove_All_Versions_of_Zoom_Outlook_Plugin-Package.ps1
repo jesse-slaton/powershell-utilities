@@ -10,6 +10,8 @@
     msiexec.exe /x <ProductCode> /qn /norestart and a verbose MSI log at
     C:\DesktopSupportTools\Logs\Remove_Zoom_Outlook_Plugin_<Version>_<StartTime>.wil.
     The product code is taken from an UninstallString of the form "MsiExec.exe /X{...}".
+    An entry whose UninstallString is not an MsiExec command gets no product code but is
+    still passed to msiexec.exe /x, so that entry is not removed.
     Exit codes 0, 3010 and 1641 are reported as success or restart required; any other
     exit code takes an error branch meant to stop the script.
 
