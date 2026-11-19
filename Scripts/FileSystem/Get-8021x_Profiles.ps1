@@ -1,4 +1,34 @@
 ﻿#Requires -Version 2
+
+<#
+.SYNOPSIS
+    Outputs the 802.1X settings of the first wired LAN profile as one pipe-delimited line.
+
+.DESCRIPTION
+    Runs 'netsh lan show profiles' and parses its text output into one object per
+    profile (the object is emitted when the "Cache user information" line is read). It
+    then writes the first profile as:
+
+        <ProfileOnInterface>|<Type>|<Enabled802_1x>|<Enforced802_1x>|<EAPType>|<AuthCredential802_1x>
+
+    Read-only. The script also defines an Enable-Service helper that starts the Wired
+    AutoConfig service (dot3svc), but the call to it is commented out, so the service is
+    not started. If netsh returns no profile (for example because dot3svc is stopped),
+    indexing the empty result fails with an error.
+
+.EXAMPLE
+    .\Get-8021x_Profiles.ps1
+
+    <InterfaceName>|<Type>|Enabled|<Enforcement>|<EAPType>|<AuthCredential>
+
+.NOTES
+    Requires the Wired AutoConfig service (dot3svc) to be running. The parser reads
+    English netsh output. The #Requires -Version 2 line understates the requirement:
+    the code uses [ordered] and [Parameter(Mandatory)], which need PowerShell 3.0 or
+    later. No admin rights needed.
+#>
+
+
 #PowerShell
 
 function ConvertFrom-NetshProfiles {
