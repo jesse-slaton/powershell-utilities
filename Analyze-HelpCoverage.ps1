@@ -51,10 +51,14 @@ param(
     [string]$RepoRoot = $PSScriptRoot,
 
     [AllowEmptyString()]
-    [string]$OutputPath = (Join-Path $PSScriptRoot 'help-coverage-report.json'),
+    [string]$OutputPath,
 
     [switch]$FailOnIncomplete
 )
+
+if (-not $PSBoundParameters.ContainsKey('OutputPath')) {
+    $OutputPath = Join-Path $RepoRoot 'help-coverage-report.json'
+}
 
 function Get-HelpGrade {
     <#
