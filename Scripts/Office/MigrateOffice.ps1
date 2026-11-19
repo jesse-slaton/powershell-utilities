@@ -1,6 +1,38 @@
 <# 
-    PURPOSE: This PowerShell script generates an Office Configuration file to include additional Office products 
-    and installs Office 365 ProPlus with those products using the Office Deployment Tool.
+.SYNOPSIS
+    Installs 64-bit Office 365 ProPlus (Current Channel) with the Office Deployment Tool, carrying over other installed Click-to-Run products.
+
+.DESCRIPTION
+    Generates an Office Deployment Tool configuration file that includes additional
+    Office products and installs Office 365 ProPlus with those products.
+
+    Starts from a fixed configuration: O365ProPlusRetail, Current Channel, 64-bit,
+    ForceUpgrade and MigrateArch on, Groove and Lync excluded, language MatchOS,
+    updates enabled, RemoveMSI (remove MSI-based Office), a Company app setting and a
+    full UI with the EULA accepted.
+
+    Reads ProductReleaseIds from HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration
+    and adds every product whose ID does not contain "O365" (for example Visio or
+    Project) to the <Add> element with the same language, exclusions and
+    ForceAppShutdown. Writes the result to configuration.xml in the current directory
+    (overwriting it), then runs .\setup.exe /configure .\configuration.xml and waits.
+
+    Writes a message based on the setup exit code: success for 0, a warning for 1601,
+    1704 and 3010 (reboot required), and an error for any other code. The XmlElement
+    objects returned by the AppendChild calls are also written to the pipeline. Running
+    Office applications are closed without saving.
+
+.EXAMPLE
+    Set-Location 'C:\ODT'; .\MigrateOffice.ps1
+
+    Builds C:\ODT\configuration.xml and runs C:\ODT\setup.exe with it.
+
+.NOTES
+    Requires administrator rights, the Office Deployment Tool setup.exe in the current
+    directory, and internet access for the Office download. Expects an existing Office
+    Click-to-Run installation: if ProductReleaseIds cannot be read, errors are written
+    and only O365ProPlusRetail is configured. The Company value is hard-coded in the
+    configuration.
 #>
 
 # Defines a function to retrieve the Office configuration data from the Windows Registry.
