@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Intended to re-register Paint 3D, Calculator, Store and Photos for all users when they are missing.
+    Intended to re-register Paint 3D, Calculator, Store and Photos for the current user when they are missing.
 
 .DESCRIPTION
     The if test pipes Get-AppxPackage -AllUsers to Select-Object with the four package
@@ -11,7 +11,9 @@
     When the block does run, it re-registers Microsoft.Paint3D,
     Microsoft.WindowsCalculator, Microsoft.WindowsStore and Microsoft.Windows.Photos
     for each installed copy found by Get-AppxPackage -AllUsers, using
-    Add-AppxPackage -DisableDevelopmentMode -Register on its AppXManifest.xml.
+    Add-AppxPackage -DisableDevelopmentMode -Register on its AppXManifest.xml. Only the
+    lookup uses -AllUsers: Add-AppxPackage -Register registers each app for the user
+    running the script, not for every user on the computer.
     Produces no output of its own.
 
 .EXAMPLE
