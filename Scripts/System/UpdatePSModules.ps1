@@ -15,7 +15,10 @@
 
     Function parameters:
     -Name <string>       Module name or wildcard to process. Default '*'.
-    -AllowPrerelease     Allow prerelease versions when updating.
+    -AllowPrerelease     Passed to Update-Module (and Uninstall-Module always gets
+                         -AllowPrerelease). The version check uses Find-Module without
+                         -AllowPrerelease, so an update runs only when a newer stable
+                         version exists.
     -WhatIf              Passed to Update-Module and Uninstall-Module so nothing is
                          changed; the version check against the gallery still runs.
 

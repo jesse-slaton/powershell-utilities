@@ -3,12 +3,15 @@
     Uninstalls IBM Planning Analytics for Microsoft Office (TM1 add-in for Excel) and removes its leftovers.
 
 .DESCRIPTION
-    For each install folder that exists,
+    Loops over two install folders,
     C:\Program Files\ibm\cognos\IBM for Microsoft Office and its Program Files (x86)
-    counterpart, runs <folder>\uninstall\uninst.exe -u -s hidden and waits for it, then
-    deletes the install folder (-Recurse -Force). It then deletes any folder under
-    C:\ProgramData\Microsoft\Windows\Start Menu\Programs whose name starts with
-    "IBM Planning Analytics for Microsoft Office". Produces no output.
+    counterpart. For each folder that exists, it runs
+    <folder>\uninstall\uninst.exe with the arguments -u -s (started with
+    Start-Process -WindowStyle Hidden -Wait), then deletes the install folder
+    (-Recurse -Force). On every pass of the loop, whether or not that folder exists, it
+    also deletes any folder under C:\ProgramData\Microsoft\Windows\Start Menu\Programs
+    whose name starts with "IBM Planning Analytics for Microsoft Office". Produces no
+    output.
 
     The script also opens $env:TEMP\cognos_uninst_log.txt to test whether it is locked,
     but ignores the result. The paths and uninstaller arguments are variables at the top
