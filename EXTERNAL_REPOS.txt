@@ -50,3 +50,29 @@ Modules required by individual scripts:
 - PSWindowsUpdate
 
 Install with: Install-Module <ModuleName> -Scope CurrentUser
+
+## Third-Party Code Removed or Kept (#39, 2026-11)
+
+Provenance audit of files that looked vendored. Each removed file was an
+unmodified or near-unmodified copy of the upstream listed; use the upstream
+(or the named replacement) instead.
+
+| Local file(s) | Origin | License | Upstream status | Outcome |
+|---|---|---|---|---|
+| Modules/ServiceNow.psm1 and the 17 *-ServiceNow*.ps1 function files (Scripts/General, Scripts/ActiveDirectory) | Snow-Shell/servicenow-powershell, copy of v1.1.0 (2018-03) | Apache-2.0 | Maintained, PowerShell Gallery module `ServiceNow` (v5.x) | Removed. Use `Install-Module ServiceNow` (see the v1 to v5 map below) |
+| Scripts/Network: Certificates.psm1, Excel.psm1, GitHub.psm1, NetBIOS.psm1, PowerShell.psm1, SMB.psm1, STIG.psm1, iadgov.psm1, GroupPolicy.psm1-Package.ps1, Compliance.psm1-Package.ps1, AdobeReader.psm1-Package.ps1, Chrome.psm1-Package.ps1, New-PolicyDefinitions.ps1 | nsacyber/Windows-Secure-Host-Baseline (Scripts/, Windows/Scripts/, Certificates/Scripts/, Compliance/Scripts/, Adobe Reader/Scripts/, Chrome/Scripts/) | CC0-1.0 (US Government work) | Archived 2023-06; no successor | Removed. Upstream: https://github.com/nsacyber/Windows-Secure-Host-Baseline |
+| Scripts/System/W10DebloaterGUI-Package.ps1, Scripts/System/Windows10SysPrepDebloater.ps1 | Sycnex/Windows10Debloater (Richard Newton), W10DebloaterGUI.ps1 and Windows10SysPrepDebloater.ps1 | MIT | Archived 2023-09 | Removed. Replacement: https://github.com/Raphire/Win11Debloat (MIT; Windows 10 and 11, CLI and Sysprep/default-user mode). GUI alternative: https://github.com/ChrisTitusTech/winutil (MIT) |
+| Scripts/General/PSObjectBrowser.ps1 | "PowerShell Object Explorer", credited to Brian Nadjiwon; no upstream found | Unknown | Windows PowerShell 5.1 only | Removed. Replacement: `Install-Module Microsoft.PowerShell.ConsoleGuiTools` (MIT; Show-ObjectTree, Out-ConsoleGridView; PowerShell 7) |
+| Scripts/System/LockScreenInfo-Package.ps1 | Credited to RIVIERRE Frederic (VortiFred), 2011-2014; no upstream found | Unknown | Targets the Windows 7 OEM logon background | Removed. Nearest replacement: `Install-Module PowerBGInfo` (EvotecIT/PowerBGInfo, MIT; draws system info on the desktop wallpaper) |
+| Scripts/Security/BitlockerLocalAdStatusReport.ps1 | GetADBitlockerInfo and its help adapted from Get-BitLockerRecovery.ps1 by Bill Stewart (gist uploaded by morisy: https://gist.github.com/morisy/5b99e763d6b72f9b3e7c1747b6d0a1ee); volume status report is first-party | No license stated | Static gist | Kept with an attribution header |
+
+### ServiceNow v1 to v5 function map
+
+| Removed v1.1.0 function | ServiceNow v5 equivalent |
+|---|---|
+| Set-ServiceNowAuth, Remove-ServiceNowAuth, Test-ServiceNowAuthIsSet | New-ServiceNowSession (session in $ServiceNowSession) |
+| Get-ServiceNowTable, Get-ServiceNowIncident, Get-ServiceNowChangeRequest, Get-ServiceNowRequest, Get-ServiceNowConfigurationItem, Get-ServiceNowUser, Get-ServiceNowUserGroup | Get-ServiceNowRecord -Table <table> |
+| New-ServiceNowTableEntry | New-ServiceNowRecord |
+| Update-ServiceNowTableEntry, Update-ServiceNowIncident, Update-ServiceNowChangeRequest | Update-ServiceNowRecord |
+| Remove-ServiceNowTableEntry | Remove-ServiceNowRecord |
+| New-ServiceNowIncident, New-ServiceNowQuery | Same names in v5 |
