@@ -1,4 +1,31 @@
-﻿$AeXBasicInventoryCollector = New-Object -ComObject Altiris.AeXBasicInventoryCollector
+﻿<#
+.SYNOPSIS
+    Creates an instance of each Altiris agent COM class and stores it in a variable.
+
+.DESCRIPTION
+    Runs New-Object -ComObject for a fixed list of Altiris, AltirisAgentProvider and
+    AltirisTaskAgentUI COM classes (for example Altiris.AeXClient,
+    Altiris.AeXNSClient, Altiris.BasicInventory and AltirisAgentProvider.Agents), and
+    assigns each to a variable named after the class, such as $AeXClient or
+    $BasicInventory. It calls no methods on them and produces no output. A class that
+    is not registered on the computer writes an error and the script continues.
+
+    Dot-source the script to keep the variables in the current session for
+    exploring the agent's COM interfaces.
+
+.EXAMPLE
+    . .\Altiris-COMObjects.ps1
+    $AeXClient | Get-Member
+
+    Creates the objects in the current session, then lists the members of the
+    Altiris.AeXClient object.
+
+.NOTES
+    Requires the Altiris (Symantec Management) Agent to be installed, which registers
+    these COM classes. Some classes may require administrator rights to create.
+#>
+
+$AeXBasicInventoryCollector = New-Object -ComObject Altiris.AeXBasicInventoryCollector
 $AeXClient = New-Object -ComObject Altiris.AeXClient
 $AeXClientPluginRegistrar = New-Object -ComObject Altiris.AeXClientPluginRegistrar
 $AeXClientSession = New-Object -ComObject Altiris.AeXClientSession

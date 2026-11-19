@@ -1,3 +1,40 @@
+<#
+.SYNOPSIS
+    Opens a Windows Forms GUI for removing selected built-in Windows 10 apps and applying a few tweaks.
+
+.DESCRIPTION
+    Creates C:\Temp\Windows10Debloater if it does not exist and starts a transcript in
+    it (the script never calls Stop-Transcript). Then shows the "Windows 10 Debloater"
+    window, which lists app names from a built-in list, and blocks until the window is
+    closed.
+
+    Uninstall button: asks whether to create a System Restore Point. On Yes it runs
+    Checkpoint-Computer, then for each selected app whose name matches a folder under
+    C:\Program Files\WindowsApps it removes matching Appx packages for the current user,
+    the matching provisioned packages, and matching packages for all users. On No or
+    Cancel nothing is removed.
+
+    Apply Checkbox Changes button:
+    - Enable Cortana / Disable Cortana: sets AllowCortana to 1 or 0 under
+      HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search, only if that key exists.
+    - Uninstall OneDrive: attaches a handler to $RemoveOnedrive, which the script never
+      creates, so OneDrive is not removed.
+    - Unpin Tiles From Start Menu: unpins every Start menu tile for the current user.
+
+    The self-elevation block at the top of the script is commented out.
+
+.EXAMPLE
+    .\W10DebloaterGUI-Package.ps1
+
+    Opens the debloater window from an elevated Windows PowerShell 5.1 session.
+
+.NOTES
+    Requires administrator rights (provisioned package removal, HKLM changes and
+    Checkpoint-Computer) and Windows PowerShell 5.1 (Checkpoint-Computer and the Appx
+    cmdlets as used here). Needs an interactive desktop session. Third-party script
+    built with POSHGUI.com; only this script-level help was added.
+#>
+
 <# This form was created using POSHGUI.com  a free online gui designer for PowerShell
 .NAME
     Untitled
