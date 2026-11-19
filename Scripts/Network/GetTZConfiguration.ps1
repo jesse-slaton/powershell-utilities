@@ -19,8 +19,10 @@
     Outputs a line such as <StartType>|<Status>|True|True|False.
 
 .NOTES
-    No admin rights needed. If one of the registry keys is missing, the script writes
-    an error for that lookup. Works in Windows PowerShell 5.1 and PowerShell 7.
+    No admin rights needed. If one of the registry keys is missing, OpenSubKey returns
+    nothing and the GetValue call on it fails with a "null-valued expression" error.
+    That error stops only that statement, so the script continues: the matching field
+    is empty and the line is still written. Works in Windows PowerShell 5.1 and PowerShell 7.
     EnableTimeZoneUpdate.ps1 and EnableNTPClient.ps1 change the settings it checks.
 #>
 $WLSKeyPath = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\location"
