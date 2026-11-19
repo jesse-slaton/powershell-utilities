@@ -11,7 +11,8 @@
     prompt. Once the bind succeeds, the script opens a ServiceNow session with the
     username (without the domain) and the password, using New-ServiceNowSession from the
     ServiceNow module, and reads every record of the sys_user table with
-    Get-ServiceNowRecord into $Users. Nothing is written to the pipeline, and despite its
+    Get-ServiceNowRecord -IncludeTotalCount (which pages through all records and writes
+    a "Getting <n> records..." warning) into $Users. Nothing is written to the pipeline, and despite its
     name the script creates no incidents. Read-only.
 
 .PARAMETER ServiceNowUrl
@@ -94,4 +95,5 @@ Get-UserCredentials | Out-Null
 $ServiceNowCredential = New-Object System.Management.Automation.PSCredential $Script:userName, $Script:password
 New-ServiceNowSession -Url $ServiceNowUrl -Credential $ServiceNowCredential
 
-$Users = Get-ServiceNowRecord -Table sys_user
+# Without -IncludeTotalCount the module returns only the first 10 records.
+$Users = Get-ServiceNowRecord -Table sys_user -IncludeTotalCount
