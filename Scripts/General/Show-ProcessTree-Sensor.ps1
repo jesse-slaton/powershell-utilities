@@ -1,3 +1,29 @@
+<#
+.SYNOPSIS
+    Unfinished sensor meant to print a process tree; as written, its filter does not work.
+
+.DESCRIPTION
+    Defines Show-ProcessTree and calls it with -ProcessName 'Firefox.exe'. The intended
+    output is each top-level process name followed by its child processes, indented, as
+    "|--<Name>, <ProcessId>" lines, built from Win32_Process.
+
+    As written, the function ignores ProcessName and ProcessID (the code that used them
+    is commented out). It assigns to $pid, which is PowerShell's read-only automatic
+    variable, and uses the filter { Get-Process -ID $pid._parentprocessid } to choose
+    the top-level processes. That filter does not select processes by their parent, so
+    the output is not a usable process tree.
+
+.EXAMPLE
+    .\Show-ProcessTree-Sensor.ps1
+
+    Runs the function as written; see the description for why the result is not usable.
+
+.NOTES
+    Uses Get-WmiObject, so Windows PowerShell 5.1 only. No admin rights needed to list
+    processes.
+#>
+
+
 Function Show-ProcessTree {
     Param(
         $ProcessName,
