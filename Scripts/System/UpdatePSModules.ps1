@@ -1,4 +1,44 @@
-﻿function Update-Modules {
+﻿<#
+.SYNOPSIS
+    Defines Update-Modules, a function that updates installed PowerShell Gallery modules and removes older versions.
+
+.DESCRIPTION
+    Running the script only defines the Update-Modules function; dot-source it
+    (. .\UpdatePSModules.ps1) to make the function available, then call it.
+
+    Update-Modules returns with a warning unless the session is elevated. It lists the
+    modules installed with Install-Module (Get-InstalledModule) that match -Name. For
+    each one it compares the installed version with Find-Module and, when the gallery
+    version is newer, runs Update-Module -Scope AllUsers -AcceptLicense -Force. It then
+    uninstalls every installed version except the most recently published one. At the
+    end it lists the modules whose version changed. Progress is written with Write-Host.
+
+    Function parameters:
+    -Name <string>       Module name or wildcard to process. Default '*'.
+    -AllowPrerelease     Allow prerelease versions when updating.
+    -WhatIf              Passed to Update-Module and Uninstall-Module so nothing is
+                         changed; the version check against the gallery still runs.
+
+.EXAMPLE
+    . .\UpdatePSModules.ps1
+    Update-Modules
+
+    Defines the function, then updates all installed gallery modules.
+
+.EXAMPLE
+    . .\UpdatePSModules.ps1
+    Update-Modules -Name 'Az.*' -WhatIf
+
+    Shows what would be updated and uninstalled for the Az modules without changing them.
+
+.NOTES
+    Update-Modules requires administrator rights, PowerShellGet (Get-InstalledModule,
+    Find-Module, Update-Module) and internet access to the PowerShell Gallery. Only
+    modules installed with Install-Module are processed.
+#>
+
+
+function Update-Modules {
 	param (
 		[switch]$AllowPrerelease,
 		[string]$Name = '*',

@@ -1,4 +1,38 @@
-﻿#User Modifiable Variables
+﻿<#
+.SYNOPSIS
+    Silently uninstalls every installed version of MicroStrategy Enterprise.
+
+.DESCRIPTION
+    Reads the 64-bit and 32-bit (Wow6432Node) HKLM Uninstall keys and builds an
+    inventory of installed programs (updates, hotfixes and service packs excluded).
+    Every entry whose DisplayName matches *Microstrategy*Enterprise* and whose version
+    is not exactly $KeepVersion (empty keeps none) is uninstalled by running the
+    executable from its UninstallString with
+    "-runfromtemp -l0x0409 -removeonly /hide_progress --silent" and installer logs in
+    C:\DesktopSupportTools\Logs. Exit codes 0, 3010 and 1641 are reported as success or
+    restart required; any other exit code takes an error branch meant to stop the
+    script.
+
+    A transcript is written to
+    C:\DesktopSupportTools\Logs\Remove_All_MicroStrategy_Installations_<StartTime>.log
+    (the folder is created if needed). Progress is written with Write-Host. When nothing
+    matches, writes the warning "MicroStrategy is not installed on this computer."
+
+    The script ends with [Environment]::Exit, using the exit code of the last uninstaller
+    (0 when nothing was uninstalled), which closes the PowerShell host. The application
+    name and $KeepVersion are variables at the top of the script.
+
+.EXAMPLE
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Remove_All_Versions_of_Microstrategy-Package.ps1
+
+    Removes MicroStrategy Enterprise and returns the uninstaller's exit code.
+
+.NOTES
+    Requires administrator rights. Intended to run as a software-deployment package in
+    its own process, because the script exits the host when done. Windows PowerShell 5.1.
+#>
+
+#User Modifiable Variables
 
 #Application Name:
 #    Note that this script will search within the DisplayName property for the name of the application.
