@@ -1,3 +1,28 @@
+<#
+.SYNOPSIS
+    Reports whether the installed Google Chrome (chrome.exe) is a 32-bit or 64-bit binary.
+
+.DESCRIPTION
+    Despite its name, this script checks Chrome, not Explorer. It reads the path of
+    chrome.exe from the (Default) value of
+    HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe, opens that
+    file read-only, and parses its PE headers. It writes "32-bit" or "64-bit" to the
+    host, or "Not a valid PE file!" if the file has no DOS signature. ROM images and
+    unknown header types produce a "ROM File, not supported!" or "Unknown PE file type"
+    message instead, which can be followed by errors. Read-only. If Chrome is not registered in App Paths, opening the file
+    fails with an error.
+
+.EXAMPLE
+    .\GetExplorerArch-Package.ps1
+
+    Writes 32-bit or 64-bit for the installed chrome.exe.
+
+.NOTES
+    Requires Google Chrome installed and registered under App Paths in HKLM. Requires
+    PowerShell 5.0 or later (uses enum definitions). Named as a Tanium package but
+    does not use the Tanium Client. No admin rights needed.
+#>
+
 $filename = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe').'(Default)'
  
 [Uint16]$IMAGE_DOS_SIGNATURE = 0x5A4D
