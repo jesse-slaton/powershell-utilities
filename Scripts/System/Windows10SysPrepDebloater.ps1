@@ -1,3 +1,57 @@
+<#
+.SYNOPSIS
+    Removes most built-in Windows 10 Appx apps and applies privacy and bloatware-blocking registry settings before Sysprep.
+
+.DESCRIPTION
+    Runs these steps in order, writing a progress line with Write-Output before each:
+    - Sets AutoDownload = 2 under HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore, stops
+      the InstallService service and sets it to Disabled.
+    - Removes every Appx package (all users) and every provisioned Appx package whose
+      name does not match the allow list (Paint3D, MSPaint, WindowsCalculator,
+      WindowsStore, MicrosoftStickyNotes, WindowsSoundRecorder, Windows.Photos,
+      UbuntuonWindows).
+    - Deletes a fixed list of leftover app registry keys under HKCR (background tasks,
+      file associations, scheduled tasks, protocol and share target entries).
+    - Runs a check meant to re-register the allow-listed apps if they were removed. As
+      written, the check is satisfied whenever any Appx package is installed, so the
+      apps are not re-registered.
+    - Applies privacy settings: advertising ID, Cortana (AllowCortana = 0), feedback
+      frequency, DisableWindowsConsumerFeatures, live tiles, telemetry
+      (AllowTelemetry = 0), the People taskbar icon and Start menu suggestions. Some
+      values are set only if their key already exists, others only if it does not.
+    - Loads C:\Users\Default\NTUSER.DAT as HKU\Default_User, turns off suggested and
+      preinstalled apps for new profiles, and unloads it.
+    - Disables the scheduled tasks XblGameSaveTask, Consolidator, UsbCeip, DmClient and
+      DmClientOnScenarioDownload.
+
+    Output also includes the objects returned by New-PSDrive, mkdir and
+    New-ItemProperty, and the output of reg.exe. The HKCU settings apply to the account
+    running the script. -Debloat and -SysPrep
+    are declared but not used: every step runs whether or not they are given.
+
+.PARAMETER Debloat
+    Declared but not used. All steps run regardless.
+
+.PARAMETER SysPrep
+    Declared but not used. All steps run regardless.
+
+.EXAMPLE
+    .\Windows10SysPrepDebloater.ps1
+
+    Runs all steps on the local computer.
+
+.EXAMPLE
+    .\Windows10SysPrepDebloater.ps1 -SysPrep -Debloat
+
+    Same as running it with no parameters; the switches have no effect.
+
+.NOTES
+    Requires administrator rights and Windows PowerShell 5.1 (Appx and DISM cmdlets,
+    HKLM changes, reg load of the default user hive). Intended for building a Windows 10
+    image before Sysprep (for example in MDT); removed apps are not restored by this
+    script. Third-party script; only this script-level help was added.
+#>
+
 #This function finds any AppX/AppXProvisioned package and uninstalls it, except for Freshpaint, Windows Calculator, Windows Store, and Windows Photos.
 #Also, to note - This does NOT remove essential system services/software/etc such as .NET framework installations, Cortana, Edge, etc.
 

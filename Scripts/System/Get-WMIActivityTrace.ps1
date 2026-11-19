@@ -1,4 +1,50 @@
-﻿Install-Module -Name Join-Object -AcceptLicense  
+﻿<#
+.SYNOPSIS
+    Captures WMI activity for 3 minutes and reports which processes ran which WMI operations.
+
+.DESCRIPTION
+    Installs the Join-Object module from the PowerShell Gallery (Install-Module
+    -AcceptLicense, on every run) and compiles a small C# helper for process I/O
+    priority. Then:
+    - Clears and enables the Microsoft-Windows-WMI-Activity/Trace event log (disabling
+      and re-enabling it clears it).
+    - Sets ProcessCreationIncludeCmdLine_Enabled = 1 under
+      HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System\Audit and enables
+      success auditing for the Process Creation and Process Termination subcategories.
+    - Waits 180 seconds.
+    - Disables the trace log and both audit subcategories. The command-line registry
+      value is left set.
+
+    It then reads event ID 11 from the trace log and events 4688/4689 from the Security
+    log (from two hours before the start), maps process IDs to names using the running
+    processes and the 4688 events, and joins each WMI operation to the security events
+    by process ID with Join-Object. Output is the joined records grouped by Operation
+    (Group-Object), with Computer Name, Time Created, Process ID, ProcessName,
+    Operation, WMI Namespace, WMI Query, operation start/stop/elapsed time, Command Line
+    and Parent Process Name. Namespace and query are filled only for ExecQuery
+    operations.
+
+    Audit policy for process creation and termination is set to disabled at the end
+    even if it was enabled before the script ran.
+
+.EXAMPLE
+    .\Get-WMIActivityTrace.ps1
+
+    Records WMI activity for 3 minutes and outputs the operations grouped by type.
+
+.EXAMPLE
+    .\Get-WMIActivityTrace.ps1 | ForEach-Object Group | Export-Csv .\WMIUsage.csv -NoTypeInformation
+
+    Saves the individual records to a CSV file.
+
+.NOTES
+    Requires administrator rights (wevtutil, auditpol, the Security log and HKLM),
+    internet access to the PowerShell Gallery for Join-Object, and PowerShellGet with
+    Install-Module -AcceptLicense support. Changes the local audit policy and clears
+    the WMI-Activity/Trace log.
+#>
+
+Install-Module -Name Join-Object -AcceptLicense  
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;

@@ -1,3 +1,26 @@
+<#
+.SYNOPSIS
+    Makes the Altiris primary user the owner of C:\MIG and grants that user Full Control.
+
+.DESCRIPTION
+    Reads the agent's basic inventory XML through the Altiris.BasicInventory COM object
+    and takes the primary user from the 'AeX AC Primary User' data class as
+    <Domain>\<User> (columns c3 and c2). It then sets that account as the owner of
+    C:\MIG and of every file and folder under it (Get-ChildItem -Force -Recurse), and
+    adds a Full Control access rule for the account on C:\MIG that is inherited by
+    subfolders and files. Produces no output.
+
+.EXAMPLE
+    .\Set-MIGPathOwner.ps1
+
+    Gives the computer's Altiris primary user ownership of C:\MIG and Full Control on it.
+
+.NOTES
+    Requires administrator rights and the Altiris (Symantec Management) Agent with
+    basic inventory data available. C:\MIG must exist.
+#>
+
+
 Function GetAltirisPrimaryUser {
     $BasicInventory = New-Object -ComObject Altiris.BasicInventory
     [xml]$inventory = $BasicInventory.Inventory
