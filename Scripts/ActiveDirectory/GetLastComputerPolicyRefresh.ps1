@@ -1,3 +1,32 @@
+<#
+.SYNOPSIS
+    Reports how long ago Group Policy last finished processing for the computer.
+
+.DESCRIPTION
+    Reads the endTimeHi and endTimeLo values of the core Group Policy extension state
+    key (HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\State\Machine\
+    Extension-List\{00000000-0000-0000-0000-000000000000}), combines them into a
+    file time, and writes the time elapsed since then as text:
+
+    - "Less than 1 hour", "1 hour" or "<n> hours" when it was under a day ago
+    - "Over 1 year" when it was 365 days or more ago
+    - otherwise a string built from "($diff.days) days"; because only $diff is expanded
+      inside the string, this shows the whole time span followed by ".days) days"
+      rather than a day count
+    - "Could not get last GPUpdate datetime" if the registry values cannot be read or
+      converted
+
+    Read-only.
+
+.EXAMPLE
+    .\GetLastComputerPolicyRefresh.ps1
+
+    3 hours
+
+.NOTES
+    The code runs through Invoke-Command -ComputerName ., which needs PowerShell
+    remoting (WinRM) enabled on the local computer and normally administrator rights.
+#>
 Invoke-Command -ScriptBlock {
     $Today = Get-Date
     Try {
