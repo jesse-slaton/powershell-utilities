@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Turns on automatic time zone updates by enabling the tzautoupdate service and allowing location access.
+    If the tzautoupdate service is not already set to Automatic, sets it to Automatic, allows location access if it is denied, and starts the service.
 
 .DESCRIPTION
     Does nothing (and outputs nothing) when the tzautoupdate service startup type is

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Sets the Microsoft vendor-class DHCP option 1 to 0x2 (disable NetBIOS over TCP/IP) on every reachable authorized DHCP server.
+    Sets the Microsoft vendor-class DHCP option 1 to 0x2 (disable NetBIOS over TCP/IP) on every reachable authorized DHCP server except one hard-coded DHCP server address.
 
 .DESCRIPTION
     Lists the DHCP servers authorized in Active Directory (Get-DhcpServerInDC), leaving
