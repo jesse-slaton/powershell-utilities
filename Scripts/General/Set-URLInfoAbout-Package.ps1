@@ -1,4 +1,35 @@
-﻿$BatteryCount = (Get-WmiObject win32_battery).Count
+﻿<#
+.SYNOPSIS
+    Sets the URLInfoAbout (support link) of installed Forcepoint products to a Forcepoint documentation URL.
+
+.DESCRIPTION
+    First counts Win32_Battery instances. Then reads every uninstall entry under
+    HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall and
+    HKLM\SOFTWARE\Wow6432node\Microsoft\Windows\CurrentVersion\Uninstall (64-bit
+    registry view) into inventory objects, skipping entries without a DisplayName and
+    those whose DisplayName matches the update, rollup, security update, service pack
+    or hotfix patterns. It keeps the entries whose DisplayName contains "Forcepoint"
+    and, if there are any, runs New-ItemProperty -Force on each matching uninstall key:
+
+    - no battery: URLInfoAbout = the "Forcepoint DLP Endpoint" 8.5 documents URL
+    - one or more batteries: URLInfoAbout = the "Forcepoint Web Security Endpoint" 8.5
+      documents URL
+
+    The application name and both URLs are set in variables at the top of the script.
+    The objects returned by New-ItemProperty are written to the output. If no
+    Forcepoint entry is found, nothing is changed.
+
+.EXAMPLE
+    .\Set-URLInfoAbout-Package.ps1
+
+    Updates the support link that Programs and Features shows for Forcepoint.
+
+.NOTES
+    Requires administrator rights (writes to HKLM). Uses Get-WmiObject, so Windows
+    PowerShell 5.1 only. Named as a package; it takes no package parameters.
+#>
+
+$BatteryCount = (Get-WmiObject win32_battery).Count
 $Application = 'Forcepoint'
 $CombinedURL = 'https://support.forcepoint.com/DocumentsDisplayed?version=8.5&name=Forcepoint%20Web%20Security%20Endpoint'
 $DLPURL      = 'https://support.forcepoint.com/DocumentsDisplayed?version=8.5&name=Forcepoint%20DLP%20Endpoint'

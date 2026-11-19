@@ -1,4 +1,28 @@
-﻿$IEHackFiles = Get-ChildItem "C:\Users\*\AppData\Local\Microsoft\Windows\INetCache\IE\*\hack-run*.png" -Recurse -Force -ErrorAction SilentlyContinue
+﻿<#
+.SYNOPSIS
+    Sensor that lists hack-run*.png files in every user's Internet Explorer cache, with size and MD5 hash.
+
+.DESCRIPTION
+    Searches C:\Users\*\AppData\Local\Microsoft\Windows\INetCache\IE\*\ recursively
+    (including hidden files, errors suppressed) for files named hack-run*.png. For each
+    file it writes one line:
+
+        <Folder>|<FileName>|<CreationTime>|<Size>|<MD5>
+
+    where Size is a friendly value such as "12.34 KB". If no file is found it writes
+    "File not found." with Write-Host. Read-only.
+
+.EXAMPLE
+    .\Find-Hack-Run-Sensor.ps1
+
+    Lists matching cache files for all user profiles, or "File not found.".
+
+.NOTES
+    Named as a sensor, but takes no sensor parameters and runs on its own. Needs administrator or SYSTEM rights to read other users'
+    profiles. The profile root C:\Users is hard-coded. Requires PowerShell 4.0 or
+    later (Get-FileHash).
+#>
+$IEHackFiles = Get-ChildItem "C:\Users\*\AppData\Local\Microsoft\Windows\INetCache\IE\*\hack-run*.png" -Recurse -Force -ErrorAction SilentlyContinue
 #$IEHackFiles = Get-ChildItem "C:\Users\*\AppData\Local\Microsoft\Windows\INetCache\IE\*\WebResource*.js" -Recurse -Force -ErrorAction SilentlyContinue
 function Get-FriendlySize {
     param($Bytes)
