@@ -1,6 +1,8 @@
 #Version 1.5
 
 <#     
+       .SYNOPSIS
+              Creates a "Test Chrome" Desktop shortcut that starts Chrome with the audio service sandbox disabled.
        .NOTES
        ===========================================================================
        Created with:       SAPIEN Technologies, Inc., PowerShell Studio 2014 v4.1.51
@@ -9,8 +11,25 @@
        Organization:       MIG
        Filename:           
        ===========================================================================
+              Prerequisites: Windows, and 32-bit Google Chrome installed in
+              C:\Program Files (x86)\Google\Chrome\Application (the path is
+              hard-coded). Run as the user who should get the shortcut. No admin
+              rights needed. Uses the WScript.Shell COM object.
        .DESCRIPTION
               Uses Powershell to create a Start Menu & Desktop shortcut icons.
+              Only the Desktop shortcut is created: the script writes
+              "Test Chrome.lnk" to the current user's Desktop folder (despite the
+              variable name $PubDesktop, this is not the Public desktop) and creates
+              no Start Menu shortcut. The target is chrome.exe in
+              C:\Program Files (x86)\Google\Chrome\Application, the working folder is
+              that same folder, and the argument is
+              --disable-features=AudioServiceSandbox. An existing shortcut with the
+              same name is overwritten. Produces no output.
+
+       .EXAMPLE
+              .\Create-ChromeTestShortcut.ps1
+
+              Creates "Test Chrome.lnk" on the current user's Desktop.
 #>
 
 # DO NOT INCLUDE DRIVE, PROGRAM FILES, OR TRAILING BACKSLASH IN PATH
