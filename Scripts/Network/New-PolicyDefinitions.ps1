@@ -1,4 +1,33 @@
 #requires -Version 3
+<#
+.SYNOPSIS
+    Writes policy.json metadata files into a local clone of the Secure-Host-Baseline repository.
+
+.DESCRIPTION
+    Changes the current location to a hard-coded base path,
+    $env:USERPROFILE\Documents\GitHub\Secure-Host-Baseline, and leaves the session
+    there after the script ends.
+
+    Then writes 16 policy.json files (ASCII, overwriting existing ones) under
+    "<Area>\Group Policy Objects\..." folders for ActivClient, Adobe Reader, AppLocker
+    (Audit and Enforced), BitLocker, Certificates, Chrome, EMET, Internet Explorer
+    (Computer and User), Office 2013, Office 2016 (Computer and User), Windows
+    (Computer and User) and Windows Firewall. Each file is a JSON object with
+    PolicyName, PolicyScopes, PolicyTypes, PolicyModes, PolicyTemplatePath,
+    PolicyTemplateType and PolicyTemplateVersion. OS templates use version
+    10.0.14393.0 (Windows 10 1607). Produces no console output.
+
+.EXAMPLE
+    .\New-PolicyDefinitions.ps1
+
+    Regenerates the policy.json files in the Secure-Host-Baseline clone under the
+    current user's Documents\GitHub folder.
+
+.NOTES
+    Requires a clone of the Secure-Host-Baseline repository at the hard-coded path, with
+    the target folders already present (Out-File does not create folders). Runs under
+    Set-StrictMode -Version 3. No admin rights needed. PowerShell 3.0 or later.
+#>
 Set-StrictMode -Version 3
 
 # todo: turn into functions

@@ -1,3 +1,30 @@
+<#
+.SYNOPSIS
+    Turns on automatic time zone updates by enabling the tzautoupdate service and allowing location access.
+
+.DESCRIPTION
+    Does nothing (and outputs nothing) when the tzautoupdate service startup type is
+    already Automatic. Otherwise it:
+    - sets tzautoupdate to start automatically;
+    - reads the Value entry under
+      HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\location;
+      if it is "Deny", outputs "Location is disabled" and sets it to "Allow",
+      otherwise outputs "Location is enabled";
+    - starts the tzautoupdate service.
+
+    Note that "Location is disabled" describes the state before the script changed it.
+
+.EXAMPLE
+    .\EnableTimeZoneUpdate.ps1
+
+    Enables automatic time zone updates and system location access if they are not
+    already on.
+
+.NOTES
+    Requires administrator rights. Allowing location access affects the whole device.
+    Works in Windows PowerShell 5.1 and PowerShell 7. GetTZConfiguration.ps1 reports on
+    these settings.
+#>
 # Check if tzautoupdate service is set to automatic start
 if ((Get-Service -Name tzautoupdate).StartType -ne 'Automatic') {
     # Configure tzautoupdate service to start automatically
