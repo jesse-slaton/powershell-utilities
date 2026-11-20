@@ -9,6 +9,37 @@
     writes four CSV reports to C:\Temp and opens them in Excel. The script makes no changes
     to SQL or Active Directory.
 
+    The four reports, each limited to the rows named:
+        VULNERABLE.csv          in AD and Altiris, not encrypted (names containing VIEW excluded)
+        ENCRYPTED.csv           in AD and Altiris, 'Bitlocker: Protected' or 'Checkpoint: Enabled'
+                                (names containing VIEW excluded)
+        IN AD NOT ALTIRIS.csv   in AD, not in Altiris
+        IN ALTIRIS NOT AD.csv   in Altiris, not in AD
+
+    Every report has the same columns, in this order. A value of '---' means the computer was
+    not found in that source; values joined with commas list one entry per recovery object.
+        AD_Name                  computer name in Active Directory
+        AD_Created               AD computer object creation date (yyyy/MM/dd)
+        AD_Changed               AD computer object last-change date (yyyy/MM/dd)
+        BL_Name                  computer name that owns the BitLocker recovery objects
+        BL_Created_Date          creation timestamp of each recovery object, from its name
+        BL_Key_Count             number of BitLocker recovery objects for the computer
+        BL_PW_ID                 recovery password ID of each recovery object, as {GUID}; the
+                                 ID only, never the recovery password itself
+        ALT_Name                 computer name in the Altiris CMDB
+        ALT_PC_Loc               Altiris computer location
+        ALT_User_Loc             always 'DISABLED 4/1/2019' (the user location is not reported)
+        ALT_Managed              Altiris managed flag
+        ALT_OS_Name              operating system name in Altiris
+        ALT_ENC_Stat             encryption status (Checkpoint or BitLocker state, or
+                                 'No Inventory Data')
+        ALT_ENC_Perc             BitLocker conversion percentage
+        ALT_User_ID              Altiris user ID
+        ALT_User_Name            Altiris user name
+        ALT_BL_LastClientUpdate  last time the client sent BitLocker inventory to Altiris
+        ALT_BL_LastInvChange     last time that BitLocker inventory changed
+        ALT_LastPolicyRequest    last Altiris policy request (agent heartbeat)
+
 .PARAMETER ServerInstance
     SQL Server that hosts the Altiris CMDB, as a host name or host\instance (for example
     'sql01.contoso.com' or 'sql01\ALTIRIS').
@@ -54,6 +85,9 @@
 
     If the SQL query or an Active Directory search fails, the script writes an error and
     exits with code 1 before it writes or opens any report.
+
+    The script deliberately never reads BitLocker recovery passwords from Active Directory,
+    only their IDs, so its CSVs cannot contain a recovery key.
 #>
 [CmdletBinding()]
 param(
@@ -448,7 +482,7 @@ catch {
 
 #REGION AD QUERY BITLOCKER KEYS
 try {
-    $BLRecovery = @(Invoke-ComplianceAdSearch -Filter '(ObjectCategory=msFVE-RecoveryInformation)' -Property 'name','whencreated','msFVE-RecoveryPassword','msfve-volumeguid' -SearchRoot $RecoverySearchRoot)
+    $BLRecovery = @(Invoke-ComplianceAdSearch -Filter '(ObjectCategory=msFVE-RecoveryInformation)' -Property 'name','whencreated','msfve-volumeguid' -SearchRoot $RecoverySearchRoot)
 }
 catch {
     Write-Error "AD query failed: $($_.Exception.Message)"
@@ -459,18 +493,16 @@ $BLDRAFT1 = @()
 FOREACH ($ITEM IN $BLRecovery){
     #DEBUG LINE
     #$BLRecovery[3788].Properties.adspath.split("'{','}','=',','")
-	$BLTMP = $ITEM.Properties.adspath.split("'{','}','=',','")
+	$BLTMP = $ITEM.Properties.adspath.Split([char[]]"'{},=")
     [STRING]$BLNAME = $BLTMP[5]
     [STRING]$BLCDATE = $BLTMP[1]
 	[STRING]$BLPWID = ("{" + $BLTMP[2] + "}")
-	[STRING]$BLPW = $ITEM.Properties.'msfve-recoverypassword'
 
     $ITEMTMP = New-Object PSObject -Property @{
         BL_Name          = $BLNAME
-        BL_Key_Count     = $BLPW.Count
+        BL_Key_Count     = 1
         BL_Created_Date  = $BLCDATE
         BL_PW_ID         = $BLPWID
-        BL_PW            = $BLPW
     }
 	$BLDRAFT1 += $ITEMTMP
 }
@@ -481,7 +513,6 @@ FOREACH ($ITEM IN $BLDRAFT2){
     [STRING]$A = $ITEM.Group[0].BL_Name
     [STRING]$B = $ITEM.Group.BL_Key_Count.Count
     [STRING]$C = $ITEM.Group.BL_Created_Date -join ','
-    [STRING]$D = $ITEM.Group.BL_PW -join ','
     [STRING]$E = $ITEM.Group.BL_PW_ID -join ','
 
     $ITEMTMP = New-Object PSObject -Property @{
@@ -489,11 +520,10 @@ FOREACH ($ITEM IN $BLDRAFT2){
         BL_Key_Count     = $B
         BL_Created_Date  = $C
         BL_PW_ID         = $E
-        BL_PW            = $E
     }
     $BLDRAFT3 += $ITEMTMP
 }
-$BLINFO = $BLDRAFT3 | Sort-Object -Property BL_Name | Select-Object -Property BL_Name,BL_Key_Count,BL_Created_Date,BL_PW,BL_PW_ID
+$BLINFO = $BLDRAFT3 | Sort-Object -Property BL_Name | Select-Object -Property BL_Name,BL_Key_Count,BL_Created_Date,BL_PW_ID
 
 <#
 #MAY NOT NEED THIS ANY LONGER SINCE HASH VALUES WERE CHANGED TO STRING SO EXPORT CSV DOESN'T CREATE SYSTEM.OBJECT ENTRIES
@@ -501,19 +531,17 @@ $BLKEYS = @()
 FOREACH ($ITEM IN $BLDRAFT2){
     $BLPIHASH = $ITEM.Group.BL_PW_ID
     $BLCDHASH = $ITEM.Group.BL_Created_Date
-    $BLPWHASH = $ITEM.Group.BL_PW
 
     $ITEMTMP = New-Object PSObject -Property @{
         BL_Name          = $ITEM.Name
         BL_Key_Count     = $ITEM.Count
         BL_Created_Date  = $BLCDHASH
         BL_PW_ID         = $BLPIHASH
-        BL_PW            = $BLPWHASH
     }
     $BLKEYS += $ITEMTMP
 }
 
-$BLINFO = $BLKEYS | Select-Object -Property BL_Name,BL_Key_Count,BL_Created_Date,BL_PW,BL_PW_ID
+$BLINFO = $BLKEYS | Select-Object -Property BL_Name,BL_Key_Count,BL_Created_Date,BL_PW_ID
 #>
 
 #ENDREGION AD QUERY BITLOCKER KEYS
@@ -544,7 +572,6 @@ $ALLAD | ForEach-Object {
             BL_Key_Count    = $BLHASH[$_.AD_Name][0].BL_Key_Count
             BL_Created_Date = $BLHASH[$_.AD_Name][0].BL_Created_Date
             BL_PW_ID        = $BLHASH[$_.AD_Name][0].BL_PW_ID
-            BL_PW           = $BLHASH[$_.AD_Name][0].BL_PW
         }
         $NEWAD2 += $ITEMTMP
     }
@@ -558,7 +585,6 @@ $ALLAD | ForEach-Object {
             BL_Key_Count    = '---'
             BL_Created_Date = '---'
             BL_PW_ID        = '---'
-            BL_PW           = '---'
         }
         $NEWAD2 += $ITEMTMP
     }
@@ -576,12 +602,11 @@ $BLINFO | ForEach-Object {
             BL_Key_Count    = $_.BL_Key_Count
             BL_Created_Date = $_.BL_Created_Date
             BL_PW_ID        = $_.BL_PW_ID
-            BL_PW           = $_.BL_PW
         }
         $NEWAD2 += $ITEMTMP
     }
 }
-$NEWAD3 = $NEWAD2 | Select-Object -Property AD_Name,AD_Created,BL_Name,BL_Created_Date,BL_Key_Count,BL_PW_ID,BL_PW,AD_Changed
+$NEWAD3 = $NEWAD2 | Select-Object -Property AD_Name,AD_Created,BL_Name,BL_Created_Date,BL_Key_Count,BL_PW_ID,AD_Changed
 
 #JOIN AD & ALTIRIS
 $NEWAD = @()
@@ -598,7 +623,6 @@ $NEWAD3 | ForEach-Object {
             BL_Key_Count    = $_.BL_Key_Count
             BL_Created_Date = $_.BL_Created_Date
             BL_PW_ID        = $_.BL_PW_ID
-            BL_PW           = $_.BL_PW
             ALT_Name        = $ALTHASH[$_.AD_Name][0].ALT_Name
             ALT_PC_Loc      = $ALTHASH[$_.AD_Name][0].ALT_PC_Loc
             #ALT_User_Loc    = $ALTHASH[$_.AD_Name][0].ALT_User_Loc
@@ -625,7 +649,6 @@ $NEWAD3 | ForEach-Object {
             BL_Key_Count    = $_.BL_Key_Count
             BL_Created_Date = $_.BL_Created_Date
             BL_PW_ID        = $_.BL_PW_ID
-            BL_PW           = $_.BL_PW
             ALT_Name        = '---'
             ALT_PC_Loc      = '---'
             ALT_User_Loc    = '---'
@@ -655,7 +678,6 @@ $ALTIRIS | ForEach-Object {
             BL_Key_Count    = '---'
             BL_Created_Date = '---'
             BL_PW_ID        = '---'
-            BL_PW           = '---'
             ALT_Name        = $_.ALT_Name
             ALT_PC_Loc      = $_.ALT_PC_Loc
             #ALT_User_Loc    = $_.ALT_User_Loc
@@ -684,7 +706,6 @@ $FINALAD = $NEWAD `
         ,BL_Created_Date `
         ,BL_Key_Count `
         ,BL_PW_ID `
-        ,BL_PW `
         ,ALT_Name `
         ,ALT_PC_Loc `
         ,ALT_User_Loc `
@@ -736,7 +757,6 @@ $FINALAD | Where-Object {
         ,BL_Created_Date `
         ,BL_Key_Count `
         ,BL_PW_ID `
-        ,BL_PW `
         ,ALT_Name `
         ,ALT_PC_Loc `
         ,ALT_User_Loc `
@@ -769,7 +789,6 @@ $FINALAD | Where-Object {
         ,BL_Created_Date `
         ,BL_Key_Count `
         ,BL_PW_ID `
-        ,BL_PW `
         ,ALT_Name `
         ,ALT_PC_Loc `
         ,ALT_User_Loc `
@@ -799,7 +818,6 @@ $FINALAD | Where-Object {
         ,BL_Created_Date `
         ,BL_Key_Count `
         ,BL_PW_ID `
-        ,BL_PW `
         ,ALT_Name `
         ,ALT_PC_Loc `
         ,ALT_User_Loc `
@@ -828,7 +846,6 @@ $FINALAD | Where-Object {
         ,BL_Created_Date `
         ,BL_Key_Count `
         ,BL_PW_ID `
-        ,BL_PW `
         ,ALT_Name `
         ,ALT_PC_Loc `
         ,ALT_User_Loc `

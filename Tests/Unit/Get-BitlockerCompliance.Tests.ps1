@@ -21,14 +21,15 @@ BeforeAll {
         $Fake
     }
 
-    # Stands in for an ADSI computer search result.
+    # Stands in for an ADSI computer search result. As in a real SearchResult, every property
+    # value is a one-element collection (ResultPropertyValueCollection), not a bare value.
     function New-FakeComputer {
         param ([string]$Name)
         [pscustomobject]@{
             Properties = @{
-                name        = $Name
-                whencreated = [datetime]'2020-01-02'
-                whenchanged = [datetime]'2021-03-04'
+                name        = @($Name)
+                whencreated = @([datetime]'2020-01-02')
+                whenchanged = @([datetime]'2021-03-04')
             }
         }
     }
@@ -303,6 +304,145 @@ Describe 'Get-BitlockerCompliance.ps1 when a data source fails' {
             $Result.Errors.Count | Should -Be 1
             $Result.Errors[0].ToString() | Should -Match "AD query failed: AD search of 'DC=contoso,DC=com' failed: .*Access is denied"
             Should -Invoke Export-Csv -Times 0 -Exactly
+        }
+    }
+}
+
+# The script must never read BitLocker recovery passwords (#110), so its CSVs cannot hold one.
+Describe 'Get-BitlockerCompliance.ps1 recovery keys' {
+    BeforeAll {
+        $script:ScriptPath = Resolve-ScriptUnderTest -Name $PSCommandPath
+    }
+
+    It 'names msFVE-RecoveryPassword nowhere in its code' {
+        $Tokens = $null
+        $ParseErrors = $null
+        $null = [System.Management.Automation.Language.Parser]::ParseFile($script:ScriptPath, [ref]$Tokens, [ref]$ParseErrors)
+        $Code = @($Tokens | Where-Object { $_.Kind -ne 'Comment' } | ForEach-Object { $_.Text })
+        $Code | Where-Object { $_ -match 'msfve-recoverypassword' } | Should -BeNullOrEmpty
+    }
+
+    # Runs the whole script, as the failure tests above do, with every effect mocked: CSV
+    # export, C:\Temp creation, Excel, console clearing and sleeps.
+    Context 'when AD returns recovery passwords anyway' {
+        BeforeAll {
+            $script:RunParameters = @{
+                ServerInstance     = 'sql01.contoso.com'
+                Database           = 'CMDB'
+                ComputerSearchRoot = 'OU=Computers,DC=contoso,DC=com'
+                RecoverySearchRoot = 'DC=contoso,DC=com'
+            }
+            # Distinctive fake recovery password, built at runtime; not a real key.
+            $script:FakeKey = @('111111', '222222', '333333', '444444', '555555', '666666', '777777', '888888') -join '-'
+            $script:KeyId = '0A1B2C3D-0000-4000-8000-000000000001'
+
+            $global:BlcTestFakeKey = $script:FakeKey
+            $global:BlcTestKeyId = $script:KeyId
+            $global:BlcTestCsv = New-Object System.Collections.ArrayList
+
+            Mock Clear-Host {}
+            Mock Write-Host {}
+            Mock Start-Sleep {}
+            Mock New-Item {}
+            Mock Export-Csv { [void]$global:BlcTestCsv.Add([pscustomobject]@{ Path = $Path; Row = $InputObject }) }
+            # New-Object has no -ComObject parameter off Windows, so Pester cannot mock it
+            # there. This global shim, found before the cmdlet, returns a fake Excel for
+            # -ComObject and hands every other call to the real cmdlet.
+            function global:New-Object {
+                param ([Parameter(Position = 0)][string]$TypeName, [Parameter(Position = 1)][object[]]$ArgumentList, [System.Collections.IDictionary]$Property, [string]$ComObject)
+                if (-not $ComObject) { return Microsoft.PowerShell.Utility\New-Object @PSBoundParameters }
+                $Sheet = Microsoft.PowerShell.Utility\New-Object PSObject
+                $Sheet | Add-Member -MemberType ScriptMethod -Name Move -Value { param($Before) }
+                $Book = Microsoft.PowerShell.Utility\New-Object PSObject
+                $Book | Add-Member -MemberType NoteProperty -Name ActiveSheet -Value $Sheet
+                $Books = Microsoft.PowerShell.Utility\New-Object PSObject
+                $Books | Add-Member -MemberType NoteProperty -Name Book -Value $Book
+                $Books | Add-Member -MemberType ScriptMethod -Name Open -Value { param($File) $this.Book }
+                $Excel = Microsoft.PowerShell.Utility\New-Object PSObject
+                $Excel | Add-Member -MemberType NoteProperty -Name Visible -Value $false
+                $Excel | Add-Member -MemberType NoteProperty -Name Workbooks -Value $Books
+                $Excel
+            }
+            Mock New-ComplianceSqlConnection { New-Object PSObject }
+            Mock Invoke-ComplianceQuery {
+                $DataSet = New-Object System.Data.DataSet
+                $Table = $DataSet.Tables.Add('Altiris')
+                [void]$Table.Columns.Add('Computer Name')
+                [void]$Table.Columns.Add('Encryption Status')
+                [void]$Table.Rows.Add('PC01', 'Bitlocker: Protected')
+                [void]$Table.Rows.Add('PC03', 'Bitlocker: Fully Decrypted')
+                [void]$Table.Rows.Add('PC09', 'Bitlocker: Protected')
+                $DataSet
+            }
+            Mock New-ComplianceAdSearcher -ParameterFilter { $Filter -eq '(ObjectCategory=Computer)' } {
+                New-FakeSearcher -Result (New-FakeComputer -Name 'PC01'), (New-FakeComputer -Name 'PC02'), (New-FakeComputer -Name 'PC03')
+            }
+            Mock New-ComplianceAdSearcher -ParameterFilter { $Filter -eq '(ObjectCategory=msFVE-RecoveryInformation)' } {
+                $Recovery = foreach ($Computer in 'PC01', 'PC02', 'PC03') {
+                    # One-element collections, like a real ADSI SearchResult, so the adspath
+                    # Split runs through member enumeration exactly as it does against AD.
+                    [pscustomobject]@{
+                        Properties = @{
+                            adspath                  = @("LDAP://CN=2020-01-02T10:00:00-08:00{$global:BlcTestKeyId},CN=$Computer,OU=Computers,DC=contoso,DC=com")
+                            name                     = @("2020-01-02T10:00:00-08:00{$global:BlcTestKeyId}")
+                            whencreated              = @([datetime]'2020-01-02')
+                            'msfve-recoverypassword' = @($global:BlcTestFakeKey)
+                        }
+                    }
+                }
+                New-FakeSearcher -Result $Recovery
+            }
+
+            $ErrorActionPreference = 'Continue'
+            # 3>$null drops the obsolete -NoTypeInformation warning that the Export-Csv mock repeats.
+            $script:Output = & $script:ScriptPath @script:RunParameters 2>&1 3>$null
+            $script:Rows = @($global:BlcTestCsv | ForEach-Object { $_.Row })
+        }
+
+        AfterAll {
+            Remove-Variable -Name BlcTestCsv, BlcTestFakeKey, BlcTestKeyId -Scope Global -ErrorAction SilentlyContinue
+            Remove-Item -Path Function:\global:New-Object -ErrorAction SilentlyContinue
+        }
+
+        It 'runs without errors and writes the four reports' {
+            @($script:Output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) | Should -BeNullOrEmpty
+            # One row reaches each report, so each report is checked below.
+            @($global:BlcTestCsv | ForEach-Object { Split-Path -Path $_.Path -Leaf } | Sort-Object -Unique) |
+                Should -Be @('ENCRYPTED.csv', 'IN AD NOT ALTIRIS.csv', 'IN ALTIRIS NOT AD.csv', 'VULNERABLE.csv')
+            $script:Rows.Count | Should -Be 4
+        }
+
+        It 'never asks AD for msFVE-RecoveryPassword' {
+            Should -Invoke New-ComplianceAdSearcher -Times 1 -Exactly -Scope Context -ParameterFilter { $Filter -eq '(ObjectCategory=msFVE-RecoveryInformation)' }
+            Should -Invoke New-ComplianceAdSearcher -Times 0 -Exactly -Scope Context -ParameterFilter { $Property -contains 'msFVE-RecoveryPassword' }
+        }
+
+        It 'writes no BL_PW column' {
+            foreach ($Row in $script:Rows) {
+                $Row.PSObject.Properties.Name | Should -Not -Contain 'BL_PW'
+            }
+        }
+
+        It 'writes the recovery key ID, never the recovery key' {
+            ($script:Rows | Where-Object { $_.AD_Name -eq 'PC01' }).BL_PW_ID | Should -Be "{$script:KeyId}"
+            foreach ($Row in $script:Rows) {
+                foreach ($Value in $Row.PSObject.Properties.Value) {
+                    "$Value" | Should -Not -Match ([regex]::Escape($script:FakeKey))
+                }
+            }
+        }
+
+        It 'writes exactly the columns the help describes' {
+            $Expected = 'AD_Name', 'AD_Created', 'AD_Changed', 'BL_Name', 'BL_Created_Date', 'BL_Key_Count', 'BL_PW_ID',
+                'ALT_Name', 'ALT_PC_Loc', 'ALT_User_Loc', 'ALT_Managed', 'ALT_OS_Name', 'ALT_ENC_Stat', 'ALT_ENC_Perc',
+                'ALT_User_ID', 'ALT_User_Name', 'ALT_BL_LastClientUpdate', 'ALT_BL_LastInvChange', 'ALT_LastPolicyRequest'
+            foreach ($Row in $script:Rows) {
+                $Row.PSObject.Properties.Name | Should -Be $Expected
+            }
+            $Help = Get-Content -Path $script:ScriptPath -Raw
+            foreach ($Column in $Expected) {
+                $Help | Should -Match ('(?m)^\s+' + [regex]::Escape($Column) + '\s')
+            }
         }
     }
 }
