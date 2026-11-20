@@ -117,7 +117,7 @@ Some scripts depend on external repositories. See `EXTERNAL_REPOS.txt` for:
 6. Save PowerShell files (`.ps1`, `.psm1`, `.psd1`) as UTF-8, with a BOM when a file holds
    non-ASCII text that Windows PowerShell 5.1 must read. Never UTF-16: secret scanners cannot
    read it. `Tests/Encoding.Tests.ps1` fails on a tracked UTF-16 file, and the Gitleaks workflow
-   scans each pull request's new commits for credentials.
+   scans the new commits of each pull request and of each push to `main` for credentials.
 
 ### Comment-based help standard
 
