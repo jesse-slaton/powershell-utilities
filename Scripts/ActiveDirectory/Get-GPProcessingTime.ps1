@@ -58,8 +58,15 @@
     such as the type of the Group Policy processing event (periodic, manual) the Activity ID
     Network Bandwidth and the domain controller being contacted.
 
-.LINKS
-# http://technet.microsoft.com/library/cc749336.aspx    
+.NOTES
+    Requires Windows and read access to the Microsoft-Windows-GroupPolicy/Operational event log
+    on each target (local admin or Event Log Readers on remote computers). Remote targets must
+    answer ping (Test-Connection) and allow remote event log access through the firewall.
+    Unreachable computers are reported with a text line on the output stream and skipped.
+    The current thread culture is set to en-US while events are read and is not restored.
+
+.LINK
+    http://technet.microsoft.com/library/cc749336.aspx
 
 #>
 [CmdletBinding()]

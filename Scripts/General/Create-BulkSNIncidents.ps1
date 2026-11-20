@@ -1,12 +1,13 @@
 ﻿#Requires -Modules @{ ModuleName = 'ServiceNow'; ModuleVersion = '5.0.0' }
+
 <#
 .SYNOPSIS
     Prompts for domain credentials, checks them against Active Directory, and reads every
     ServiceNow user record into $Users.
 
 .DESCRIPTION
-    Get-UserCredentials prompts for domain\username and password and binds to the
-    current domain over LDAP with them. On a wrong password it warns, counts the attempt
+    Get-UserCredentials prompts for domain\username and password and binds over LDAP to
+    the domain named in the entered domain\username (LDAP://<domain>), with them. On a wrong password it warns, counts the attempt
     and asks again; after three failures it also waits 30 seconds before each further
     prompt. Once the bind succeeds, the script opens a ServiceNow session with the
     username (without the domain) and the password, using New-ServiceNowSession from the
