@@ -1,8 +1,10 @@
 #Requires -Version 5.1
 # Encoding check for tracked PowerShell files. Reads raw bytes only and never loads or runs a script.
 # UTF-16 files are invisible to byte-based secret scanners (gitleaks and similar), so no tracked
-# .ps1, .psm1 or .psd1 may be UTF-16. The check rejects UTF-16 only; it does not prove a file is
-# UTF-8 (save as UTF-8, with a BOM when Windows PowerShell 5.1 has to read non-ASCII text).
+# .ps1, .psm1 or .psd1 may be UTF-16. Every such file must be valid UTF-8 (with a BOM when Windows
+# PowerShell 5.1 has to read non-ASCII text) and hold no control character other than tab, LF, FF
+# and CR. That rejects UTF-16 with or without a BOM: ASCII text in UTF-16 has NUL bytes, and other
+# BOM-less UTF-16 is either invalid UTF-8 or holds control bytes (U+0101 is the bytes 01 01).
 # Issue #108.
 
 BeforeAll {
@@ -24,18 +26,30 @@ BeforeAll {
     $script:trackedFiles = @(($raw -join '') -split "`0" | Where-Object { $_ })
 }
 
-Describe 'Tracked PowerShell files are not UTF-16' {
+Describe 'Tracked PowerShell files are UTF-8, not UTF-16' {
     It 'finds tracked PowerShell files to check' {
         $script:trackedFiles.Count | Should -BeGreaterThan 0 -Because 'git ls-files returned no .ps1, .psm1 or .psd1 files, so the encoding check checked nothing'
     }
 
-    It 'has no UTF-16 byte order mark or NUL byte in any tracked .ps1, .psm1 or .psd1' {
+    It 'has only valid UTF-8 text, with no UTF-16 byte order mark or control byte, in any tracked .ps1, .psm1 or .psd1' {
+        # Strict decoder: throws on invalid UTF-8 instead of substituting U+FFFD. New-Object, not
+        # ::new(), so the test also runs on Windows PowerShell 5.1.
+        $strictUtf8 = New-Object System.Text.UTF8Encoding -ArgumentList $false, $true
         $offenders = foreach ($relativePath in $script:trackedFiles) {
             $bytes = [System.IO.File]::ReadAllBytes((Join-Path $script:repoRoot $relativePath))
             $reason = $null
             if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { $reason = 'UTF-16LE byte order mark' }
             elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) { $reason = 'UTF-16BE byte order mark' }
-            elseif ([Array]::IndexOf($bytes, [byte]0) -ge 0) { $reason = 'NUL byte (UTF-16 without a byte order mark?)' }
+            else {
+                $text = $null
+                try { $text = $strictUtf8.GetString($bytes) }
+                catch [System.Text.DecoderFallbackException] { $reason = 'not valid UTF-8 (UTF-16 without a byte order mark?)' }
+                # A byte below 0x20 is never part of a multi-byte UTF-8 sequence, so matching the
+                # decoded text finds every such byte. NUL is the usual sign of BOM-less UTF-16.
+                if ($null -ne $text -and $text -match '[\x00-\x08\x0B\x0E-\x1F]') {
+                    $reason = 'control character other than tab, LF, FF or CR (UTF-16 without a byte order mark?)'
+                }
+            }
             if ($reason) { "$relativePath ($reason)" }
         }
 
