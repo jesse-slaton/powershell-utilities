@@ -23,6 +23,16 @@ condition = "AND"
 paths = ['''(?i)\.ps[md]?1$''']
 regexes = ['''^\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}?$''']
 
+# History only: a test file deleted long ago passed fake keys (testapikey123 and similar) to a
+# mocked -ApiKey parameter. Pinned to that one commit and path, so a full-history rescan stays
+# clean without exempting test files in new changes.
+[[allowlists]]
+description = "Fake -ApiKey fixtures in a test file that exists only in history"
+targetRules = ["powershell-password-literal-arg"]
+condition = "AND"
+commits = ["aaf0ffd389786f162f02c4f9067fc62c155c60d1"]
+paths = ['''^Scripts/General/Connect-Lidarr\.Tests\.ps1$''']
+
 [[rules]]
 id = "connection-string-password"
 description = "Password in a database connection string, after the server or user key"
@@ -66,11 +76,9 @@ description = "Literal value passed to a -Password style parameter"
 regex = '''(?i)\s-(?:Password|Passwd|Pwd|Pass|Secret|ApiKey|Token)\s+['"]([^'"$<]{4,})['"]'''
 secretGroup = 1
 [rules.allowlist]
-# Pester test files pass placeholder keys to mocked commands; real code is still scanned.
-# Elsewhere only a whole placeholder word is exempt (your-password-here, changeme, ***), never a
-# value that merely starts with my, test or sample.
-paths = ['''(?i)\.tests\.ps1$''']
-condition = "OR"
+# Only a whole placeholder word is exempt (your-password-here, changeme, ***), never a value that
+# merely starts with my, test or sample. Test files get no path exemption: a test that needs a
+# fake key uses one of these placeholder words.
 regexes = ['''(?i)^(?:(?:your|my|test|fake|dummy|example|sample|placeholder)[-_ ]?(?:password|pass|pwd|secret|token|key|api[-_ ]?key)(?:[-_ ]?here)?|(?:your|the|enter)?[-_ ]?(?:password|secret|token|api[-_ ]?key|key)[-_ ]?here|(?:api[-_ ]?)?key|password|secret|token|changeme|placeholder|REDACTED\w*|x{3,}|\*+)$''']
 
 [[rules]]
