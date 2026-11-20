@@ -52,6 +52,13 @@ jobs:
           $config.TestResult.Enabled = $true
           $config.TestResult.OutputFormat = 'JUnitXml'
           $config.TestResult.OutputPath = 'test-results.xml'
+          # Line coverage of Scripts/ and Modules/ as JaCoCo. Informational: the
+          # coverage percentage never fails the build (no target is set). An error
+          # while writing coverage.xml still fails this step.
+          $config.CodeCoverage.Enabled = $true
+          $config.CodeCoverage.Path = @('./Scripts', './Modules')
+          $config.CodeCoverage.OutputFormat = 'JaCoCo'
+          $config.CodeCoverage.OutputPath = 'coverage.xml'
           Invoke-Pester -Configuration $config
 
       - name: PSScriptAnalyzer warnings (informational)
@@ -61,6 +68,20 @@ jobs:
           Import-Module PSScriptAnalyzer -RequiredVersion 1.23.0
           './Scripts', './Modules' |
             ForEach-Object { Invoke-ScriptAnalyzer -Path $_ -Recurse -Severity Warning } |
+            Sort-Object ScriptName, Line |
+            Format-Table -AutoSize ScriptName, Line, RuleName, Message |
+            Out-String -Width 400
+
+      - name: PSScriptAnalyzer compatibility (informational)
+        if: always()
+        continue-on-error: true
+        run: |
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.23.0
+          $rules = 'PSUseCompatibleSyntax', 'PSUseCompatibleCommands', 'PSUseCompatibleTypes'
+          $findings = @('./Scripts', './Modules' |
+              ForEach-Object { Invoke-ScriptAnalyzer -Path $_ -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -IncludeRule $rules })
+          "$($findings.Count) compatibility findings"
+          $findings |
             Sort-Object ScriptName, Line |
             Format-Table -AutoSize ScriptName, Line, RuleName, Message |
             Out-String -Width 400
@@ -77,5 +98,6 @@ jobs:
           name: test-results-${{ matrix.shell }}
           path: |
             test-results.xml
+            coverage.xml
             help-coverage-report.json
           if-no-files-found: ignore

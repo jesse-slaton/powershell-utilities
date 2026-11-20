@@ -23,7 +23,11 @@
     Run as the affected user (all paths are under that user's $env:APPDATA). No admin
     rights needed. Uses the WScript.Shell COM object, so Windows only. Written for the
     Chrome 77 jump list change. If the source .customDestinations-ms file does not
-    exist, Get-Item writes an error.
+    exist, Get-Item writes an error. Its use of WScript.Shell (reading an existing
+    shortcut's TargetPath) depends on the Windows Script Host COM object model, not the
+    VBScript engine. WScript.Shell shortcut read and write were verified with the
+    VBScript feature removed on Windows Server 2025, build 26100.33828; this script
+    itself was not run in that test.
 #>
 $CustomDestination = Get-Item -Path "$env:APPDATA\Microsoft\Windows\Recent\CustomDestinations\5d696d521de238c3.customDestinations-ms"
 $ChromePinned = Get-ChildItem -Recurse -Path "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\ImplicitAppShortcuts" | Where-Object { $_.Name -match "Google Chrome" }
