@@ -97,17 +97,19 @@ jobs:
             config_sha="$PR_BASE_SHA"
           elif [ "$EVENT_NAME" = "push" ]; then
             require_commit "$PUSH_SHA" "pushed"
-            if [ -n "$PUSH_BEFORE_SHA" ] && [ "$PUSH_BEFORE_SHA" != "$zero" ] &&
-              git cat-file -e "${PUSH_BEFORE_SHA}^{commit}" 2>/dev/null; then
-              range="${PUSH_BEFORE_SHA}..${PUSH_SHA}"
-              config_sha="$PUSH_BEFORE_SHA"
-            else
-              # New branch or force push: there is no known-scanned previous commit, so scan
-              # every commit reachable from the pushed one, not just the tip.
-              echo "::warning::previous commit '${PUSH_BEFORE_SHA}' is not in the history (new branch or force push?); scanning the full history of ${PUSH_SHA}"
-              range="${PUSH_SHA}"
-              config_sha="$PUSH_SHA"
+            # Only a fast-forward push has a trusted, already-scanned previous commit. After a
+            # force push the old commit can still be in the clone (another ref), but it is not an
+            # ancestor, so before..sha would skip the rewritten commits. main is protected against
+            # force push and deletion, so a push without an ancestor is abnormal: fail loudly
+            # rather than scan with rules taken from the pushed commit itself.
+            if [ -z "$PUSH_BEFORE_SHA" ] || [ "$PUSH_BEFORE_SHA" = "$zero" ] ||
+              ! git cat-file -e "${PUSH_BEFORE_SHA}^{commit}" 2>/dev/null ||
+              ! git merge-base --is-ancestor "$PUSH_BEFORE_SHA" "$PUSH_SHA"; then
+              echo "::error::previous commit '${PUSH_BEFORE_SHA}' is not an ancestor of ${PUSH_SHA} (new branch or force push?); there is no trusted range or rules source, so it is not scanned automatically; scan the history of ${PUSH_SHA} by hand"
+              exit 1
             fi
+            range="${PUSH_BEFORE_SHA}..${PUSH_SHA}"
+            config_sha="$PUSH_BEFORE_SHA"
             scanned_sha="$PUSH_SHA"
           else
             echo "::error::unexpected event '${EVENT_NAME}'; refusing to guess a scan range"
