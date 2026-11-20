@@ -90,6 +90,7 @@ Rules:
 ## Documentation
 
 - [EXTERNAL_REPOS.txt](./EXTERNAL_REPOS.txt) - Upstream sources for archived and vendored scripts
+- [ARCHIVED.md](./ARCHIVED.md) - First-party scripts removed from main, and where to find them in git history
 - Comment-based help in each script: `Get-Help <path-to-script> -Full` (see the standard above)
 
 ---
