@@ -64,6 +64,8 @@ __HELP__
     & $script:analyzer -RepoRoot $script:fixtureRoot -OutputPath $reportPath 6>$null | Out-Null
     $script:report = Get-Content -Path $reportPath -Raw | ConvertFrom-Json
 
+    # Callers wrap this in @(): a function returning a one-item array unrolls it to a single
+    # object, and on Windows PowerShell 5.1 a lone [pscustomobject] has no .Count.
     function Get-ReportItem([string]$Name) {
         if ($Name -notlike '*/*') { $Name = "Scripts/Fixture/$Name" }
         @($script:report.Items | Where-Object { $_.File -eq $Name })
@@ -76,14 +78,14 @@ Describe 'Analyze-HelpCoverage.ps1' {
     }
 
     It 'grades a compliant function-only script per function as Complete' {
-        $items = Get-ReportItem 'Library-Complete.ps1'
+        $items = @(Get-ReportItem 'Library-Complete.ps1')
         $items.Count | Should -Be 1
         $items[0].Function | Should -Be 'Get-Greeting'
         $items[0].Grade | Should -Be 'Complete'
     }
 
     It 'grades a function-only script missing .NOTES as Partial' {
-        $items = Get-ReportItem 'Library-NoNotes.ps1'
+        $items = @(Get-ReportItem 'Library-NoNotes.ps1')
         $items.Count | Should -Be 1
         $items[0].Function | Should -Be 'Get-Greeting'
         $items[0].Grade | Should -Be 'Partial'
@@ -91,20 +93,20 @@ Describe 'Analyze-HelpCoverage.ps1' {
     }
 
     It 'grades a script with no help and no functions as None at script level' {
-        $items = Get-ReportItem 'Script-NoHelp.ps1'
+        $items = @(Get-ReportItem 'Script-NoHelp.ps1')
         $items.Count | Should -Be 1
         $items[0].Function | Should -BeNullOrEmpty
         $items[0].Grade | Should -Be 'None'
     }
 
     It 'grades every top-level function of a library separately' {
-        $items = Get-ReportItem 'Library-TwoFunctions.ps1'
+        $items = @(Get-ReportItem 'Library-TwoFunctions.ps1')
         ($items | Sort-Object Function | ForEach-Object { "$($_.Function)=$($_.Grade)" }) -join ',' |
             Should -Be 'Get-Farewell=None,Get-Greeting=Complete'
     }
 
     It 'grades a script with its own param() block at script level even when it defines functions' {
-        $items = Get-ReportItem 'Script-ParamsNoHelp.ps1'
+        $items = @(Get-ReportItem 'Script-ParamsNoHelp.ps1')
         $items.Count | Should -Be 1
         $items[0].Function | Should -BeNullOrEmpty
         $items[0].Grade | Should -Be 'None'
@@ -112,39 +114,39 @@ Describe 'Analyze-HelpCoverage.ps1' {
     }
 
     It 'grades a documented function plus top-level code as None at script level' {
-        $items = Get-ReportItem 'Script-FunctionAndCode.ps1'
+        $items = @(Get-ReportItem 'Script-FunctionAndCode.ps1')
         $items.Count | Should -Be 1
         $items[0].Function | Should -BeNullOrEmpty
         $items[0].Grade | Should -Be 'None'
     }
 
     It 'says why a documented function plus top-level code is graded at script level' {
-        $items = Get-ReportItem 'Script-FunctionAndCode.ps1'
+        $items = @(Get-ReportItem 'Script-FunctionAndCode.ps1')
         @($items[0].Missing)[0] | Should -Be 'top-level code outside functions; graded at script level'
     }
 
     It 'does not add the script-level reason for a plain script with no functions' {
-        $items = Get-ReportItem 'Script-NoHelp.ps1'
+        $items = @(Get-ReportItem 'Script-NoHelp.ps1')
         @($items[0].Missing) | Should -Not -Contain 'top-level code outside functions; graded at script level'
         @($items[0].Missing) | Should -Contain 'SYNOPSIS'
     }
 
     It 'grades a script with begin/end blocks at script level' {
-        $items = Get-ReportItem 'Script-NamedBlocks.ps1'
+        $items = @(Get-ReportItem 'Script-NamedBlocks.ps1')
         $items.Count | Should -Be 1
         $items[0].Function | Should -BeNullOrEmpty
         $items[0].Grade | Should -Be 'None'
     }
 
     It 'grades a Modules/Foo/Public function file per function as Complete' {
-        $items = Get-ReportItem 'Modules/Foo/Public/Get-Foo.ps1'
+        $items = @(Get-ReportItem 'Modules/Foo/Public/Get-Foo.ps1')
         $items.Count | Should -Be 1
         $items[0].Function | Should -Be 'Get-Foo'
         $items[0].Grade | Should -Be 'Complete'
     }
 
     It 'grades a Modules/Foo/Private helper file too' {
-        $items = Get-ReportItem 'Modules/Foo/Private/Get-FooHelper.ps1'
+        $items = @(Get-ReportItem 'Modules/Foo/Private/Get-FooHelper.ps1')
         $items.Count | Should -Be 1
         $items[0].Function | Should -Be 'Get-FooHelper'
         $items[0].Grade | Should -Be 'None'
