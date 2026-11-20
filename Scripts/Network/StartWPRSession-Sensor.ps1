@@ -3,7 +3,9 @@
 Starts a Windows Performance Recorder (WPR) session.
 
 .DESCRIPTION
-Initiates a WPR session for a given duration and profile. The output is an ETL file with a unique name based on the computer and timestamp.
+Starts a WPR recording (wpr.exe -start <profile> -filemode) with the given profile, waits for the given duration, then stops it with wpr -stop, which writes an ETL file named <ComputerName>_<yyyy-MM-dd_HH-mm-ss>.etl to OutputPath. The profile is used at its Light detail level, or Verbose when $VerbosePreference is 'Continue' in the calling session. Progress messages (start and stop times, the saved ETL path) are written to the output stream as strings.
+
+If the script body throws (an invalid duration, or an OutputPath that does not exist), the error is written with Write-Error, and the script tries to append it to a .log file in OutputPath (see Known issues). A failure inside wpr.exe itself (for example, not running elevated) does not throw, so it is not reported this way.
 
 .PARAMETER Duration
 Specifies the duration in a human-friendly format (e.g., '1m', '1h', '300s'). Default is '5m'.
@@ -14,15 +16,26 @@ Specifies the WPR profile to record from a predefined set of valid profiles. Def
 .PARAMETER OutputPath
 Specifies the output path for the ETL file. Default is the user's Desktop.
 
-.PARAMETER Verbose
-Enables verbose output.
+.EXAMPLE
+.\StartWPRSession-Sensor.ps1 -Duration "30m" -WprProfile "CPU" -OutputPath "C:\ETLs"
+
+This example starts a 30-minute recording session using the CPU profile and saves the ETL to C:\ETLs.
 
 .EXAMPLE
-.\StartWPRSession.ps1 -Duration "30m" -WprProfile "CPU" -OutputPath "C:\ETLs" -Verbose
+.\StartWPRSession-Sensor.ps1
 
-This example starts a 30-minute recording session using the CPU profile, saves the ETL to C:\ETLs, and outputs verbose logs.
+This example records the GeneralProfile for 5 minutes and saves the ETL to the current user's Desktop.
 
 .NOTES
+Requires Windows, wpr.exe on the PATH (included in Windows 10 and later, and in the Windows Performance Toolkit), and an elevated (admin) session, because WPR needs admin rights to start a trace. Runs on Windows PowerShell 5.1 and PowerShell 7.
+
+If the script is stopped before the duration ends (Ctrl+C, a sensor timeout), the WPR trace keeps running; end it with wpr -cancel.
+
+Known issues (not fixed here):
+- The script has no [CmdletBinding()], so -Verbose is not a parameter: it is accepted silently and ignored. To record at the Verbose detail level, set $VerbosePreference = 'Continue' in the session before running the script.
+- Duration is matched unanchored and hours are checked first, so only one unit is used: '1h30m' records 1 hour.
+- The error log name is built as "$computerName_$timestamp.log", which PowerShell reads as the variable $computerName_ (undefined), so the log is named <timestamp>.log, or just .log when the error happens before the timestamp is set. Writing the log also fails when OutputPath itself does not exist.
+
 For more information on Windows Performance Recorder, see the following:
 https://docs.microsoft.com/en-us/windows-hardware/test/wpt/windows-performance-recorder
 
