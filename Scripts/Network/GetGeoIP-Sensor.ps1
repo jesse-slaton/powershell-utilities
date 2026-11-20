@@ -14,6 +14,25 @@ function Get-GeoIP {
     .Example
     $IP = (Get-NetTCPConnection).remoteaddress | Where-Object {$_ -notmatch '0.0.0.0|:'}
     Get-GeoIP -IPAddress $IP
+    .Notes
+    Requires outbound network access to the ip-api.com JSON geolocation web service
+    (http://ip-api.com/json/<IP>), an external third-party service: every address
+    looked up is sent to it, over plain HTTP. No API key is used. The function waits
+    one second after each lookup, so N addresses take at least N seconds.
+    Needs Invoke-RestMethod (Windows PowerShell 3.0 or later, or PowerShell 7). No
+    admin rights needed.
+
+    This file only defines the function; dot-source it before calling Get-GeoIP.
+
+    Known issues (not fixed here):
+    - A failed lookup (no network, an HTTP error) writes a warning ('<IP> : <error>')
+      and no object. The -ErrorAction SilentlyContinue on Invoke-RestMethod has no
+      effect, because those failures are terminating errors and reach the catch block.
+    - The service's status field is not checked, so a lookup it refuses (such as a
+      private or reserved address) still returns an object, with empty location fields.
+    - The IPv4 validation pattern is not anchored: any string that contains an IPv4
+      address passes. Plain IPv6 addresses are rejected.
+    - The second example uses Get-NetStat, which is not a built-in command.
     #>
     [CmdletBinding()]
     param(
