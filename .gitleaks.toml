@@ -77,7 +77,10 @@ regex = '''(?im)(?:^|[=({;])\s*(?:('[^'\r\n]{4,}')|"([^"$\r\n]{4,})")\s*\|\s*Con
 [[rules]]
 id = "powershell-password-literal-arg"
 description = "Literal value passed to a -Password style parameter"
-regex = '''(?i)\s-(?:Password|Passwd|Pwd|Pass|Secret|ApiKey|Token)\s+(?:('[^'<\r\n]{4,}')|"([^"$<\r\n]{4,})")'''
+# The value may follow a space or a colon (-Password:'x'), and may be quoted or bare
+# (-Password P@ssw0rd). A bare value starting with $, (, @, { or < is a variable, expression or
+# placeholder, so it is not reported.
+regex = '''(?i)\s-(?:Password|Passwd|Pwd|Pass|Secret|ApiKey|Token)(?:\s+|:\s*)(?:('[^'<\r\n]{4,}')|"([^"$<\r\n]{4,})"|([^\s'"$<(@{`|;,)#][^\s'"`|;,)#]{3,}))'''
 [[rules.allowlists]]
 # Only a whole placeholder word is exempt (your-password-here, changeme, ***), never a value that
 # merely starts with my, test or sample. Test files get no path exemption: a test that needs a
