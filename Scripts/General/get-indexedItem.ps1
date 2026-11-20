@@ -29,6 +29,10 @@ Function Get-IndexedItem {
             A single string containing a Field name. 
             If specified the search will return the Values in this field, instead of objects
             for the items found by the query terms. 
+        .PARAMETER Property
+            Alias SELECT
+            One or more field names to return instead of the full default field list.
+            Short names get their System.* prefix added, as in -Filter.
         .PARAMETER Recurse
             If Path is specified only a single folder is searched Unless -Recurse is specified
             If path is not specified the whole index is searched, and recurse is ignored. 
@@ -90,6 +94,12 @@ Function Get-IndexedItem {
            Get-IndexedItem -path c:\ -recurse  -Filter cameramaker=pentax* -Property focallength | group focallength -no | sort -property @{e={[double]$_.name}}   
            Gets all the items which have a the camera maker set to pentax, anywhere on the C: driv
            but ONLY get thier focallength property, and return a sorted count of how many of each focal length there are. 
+        .NOTES
+            Requires Windows with the Windows Search service running; the query goes through its
+            OLE DB provider (Search.CollatorDSO). Searching a remote computer needs a UNC path to a
+            share on a computer whose Windows Search service indexes that share. Read-only: the
+            function queries the index and, unless -NoFiles is given, reads the found file objects.
+            The script only defines Get-IndexedItem; dot-source it to use the function.
     #>
     #$t=(Get-IndexedItem -Value "title" -filter "kind=recordedtv" -path \\atom-engine\users  -recurse | Select-List -Property title).title
     #start (Get-IndexedItem -filter "kind=recordedtv","title='$t'" -path \\atom-engine\users  -recurse | Select-List -Property ORIGINALBROADCASTDATE,PROGRAMDESCRIPTION)

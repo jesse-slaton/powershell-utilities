@@ -1,19 +1,62 @@
 <#
 .SYNOPSIS
-    Short description
+    Sensor that compares the installed version of an application with a reference version.
+
 .DESCRIPTION
-    Long description
+    Finds installed applications whose display name contains $Application (hard-coded to
+    Cisco AnyConnect Secure Mobility Client) in the HKLM Uninstall registry keys, takes the
+    one with the highest Version (sorted as a string), compares that version with
+    $ReferenceVersion (4.7.02036) using $Operator, and writes one line:
+    <result>|<name>|<version>|<operator>|<reference version>. <result> is True or False, or
+    Not Found when no application matches. Versions are compared as strings, not as
+    [version] values. Read-only.
+
 .EXAMPLE
-    PS C:\> <example usage>
-    Explanation of what the example does
-.INPUTS
-    Inputs (if any)
-.OUTPUTS
-    Output (if any)
+    .\Test-MIAVC-Sensor.ps1
+
+    Writes a line such as "|Cisco AnyConnect Secure Mobility Client|4.9.01095|Greater than
+    or Equal|4.7.02036" (the result field is empty because of the Operator issue in NOTES).
+
 .NOTES
-    General notes
+    Requires Windows. Reads HKLM only, so no admin rights or modules are needed. The inputs
+    are hard-coded; the commented-out lines show the Tanium ||parameter|| form they came from.
+    Known issues, left as they are: the hard-coded Operator 'Greater than or Equal' matches
+    no comparison branch (they end in "to"), so the result field is empty; and when no
+    application is found, the line is written with an empty name after a null-method error.
 #>
+
+
 Function Get-InstalledApplications {
+    <#
+    .SYNOPSIS
+        Lists installed applications from the HKLM Uninstall registry keys.
+    .DESCRIPTION
+        Reads the 64-bit and 32-bit (Wow6432Node) Uninstall keys under HKLM and returns one
+        System.Software.Inventory object per entry that has a DisplayName (Name, Version,
+        InstallDate, Publisher, UninstallString, ProductID, InstallLocation, InstallSource,
+        Hidden, HelpLink, EstimatedSizeMB). Entries are skipped when the name starts with
+        Security Update, Service Pack or HotFix, contains "rollup", or contains KB followed by
+        a digit. The "Update for" filter has two spaces in its pattern, so most "Update for"
+        entries are listed. Every parameter given narrows the result, and all of them must
+        match. Read-only.
+    .PARAMETER Name
+        Display name to match. Wildcards are supported.
+    .PARAMETER VersionNumber
+        Exact DisplayVersion to match.
+    .PARAMETER MajorVersion
+        First dotted part of DisplayVersion to match (0 to 999).
+    .PARAMETER PublisherName
+        Publisher to match. Wildcards are supported.
+    .PARAMETER Hidden
+        $true to return only entries marked SystemComponent, $false to return only the others.
+    .EXAMPLE
+        Get-InstalledApplications -Name '*AnyConnect*'
+    .EXAMPLE
+        Get-InstalledApplications -PublisherName '*Hyland*' -MajorVersion 20
+    .NOTES
+        Requires Windows. Reads HKLM only, which needs no admin rights; per-user (HKCU)
+        installs are not listed.
+    #>
     [CmdletBinding()]
     param (
         # Display name (supports wildcards)

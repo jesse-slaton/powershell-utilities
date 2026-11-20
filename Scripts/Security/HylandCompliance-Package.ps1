@@ -1,19 +1,58 @@
 ﻿<#
 .SYNOPSIS
-    Short description
+    Reports whether exactly four matching Hyland component entries are installed at a supported
+    20.3 build.
+
 .DESCRIPTION
-    Long description
+    Lists the applications in the HKLM Uninstall registry keys whose publisher matches
+    *Hyland*, counts those whose name matches Virtual Print, Office 2016, Web ActiveX or
+    Unity and whose version matches 20.3.2.1000 or 20.3.7376.943 (regular-expression
+    matches), and writes $True when the count is exactly 4, otherwise $False. Entries are
+    counted, not distinct components: duplicates can make up the four, and a fifth match
+    gives $False. Read-only.
+
 .EXAMPLE
-    PS C:\> <example usage>
-    Explanation of what the example does
-.INPUTS
-    Inputs (if any)
-.OUTPUTS
-    Output (if any)
+    .\HylandCompliance-Package.ps1
+
+    Writes True on a computer with the complete Hyland rollout, otherwise False.
+
 .NOTES
-    General notes
+    Requires Windows. Reads HKLM only, so no admin rights or modules are needed. Per-user
+    (HKCU) installs are not counted.
 #>
+
+
 Function Get-InstalledApplications {
+    <#
+    .SYNOPSIS
+        Lists installed applications from the HKLM Uninstall registry keys.
+    .DESCRIPTION
+        Reads the 64-bit and 32-bit (Wow6432Node) Uninstall keys under HKLM and returns one
+        System.Software.Inventory object per entry that has a DisplayName (Name, Version,
+        InstallDate, Publisher, UninstallString, ProductID, InstallLocation, InstallSource,
+        Hidden, HelpLink, EstimatedSizeMB). Entries are skipped when the name starts with
+        Security Update, Service Pack or HotFix, contains "rollup", or contains KB followed by
+        a digit. The "Update for" filter has two spaces in its pattern, so most "Update for"
+        entries are listed. Every parameter given narrows the result, and all of them must
+        match. Read-only.
+    .PARAMETER Name
+        Display name to match. Wildcards are supported.
+    .PARAMETER VersionNumber
+        Exact DisplayVersion to match.
+    .PARAMETER MajorVersion
+        First dotted part of DisplayVersion to match (0 to 999).
+    .PARAMETER PublisherName
+        Publisher to match. Wildcards are supported.
+    .PARAMETER Hidden
+        $true to return only entries marked SystemComponent, $false to return only the others.
+    .EXAMPLE
+        Get-InstalledApplications -Name '*AnyConnect*'
+    .EXAMPLE
+        Get-InstalledApplications -PublisherName '*Hyland*' -MajorVersion 20
+    .NOTES
+        Requires Windows. Reads HKLM only, which needs no admin rights; per-user (HKCU)
+        installs are not listed.
+    #>
     [CmdletBinding()]
     param (
         # Display name (supports wildcards)
