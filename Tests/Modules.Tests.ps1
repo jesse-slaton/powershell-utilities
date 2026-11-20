@@ -68,6 +68,25 @@ Describe 'Module <Name>' -ForEach $script:moduleCases {
         ($publicNames -join ', ') | Should -Be ($declaredFunctions -join ', ')
     }
 
+    It 'defines exactly one top-level function, named after the file, in each Public/*.ps1' {
+        # Parsed only, never dot-sourced or run. Helpers nested inside the function are allowed.
+        foreach ($file in @(Get-ChildItem -Path (Join-Path $ModuleFolder 'Public') -Filter '*.ps1' -File -ErrorAction SilentlyContinue)) {
+            $tokens = $null
+            $parseErrors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$parseErrors)
+            @($parseErrors) | Should -BeNullOrEmpty -Because "Public/$($file.Name) must parse"
+            $topLevel = @($ast.FindAll({
+                        param($node)
+                        if ($node -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) { return $false }
+                        for ($p = $node.Parent; $p; $p = $p.Parent) {
+                            if ($p -is [System.Management.Automation.Language.FunctionDefinitionAst]) { return $false }
+                        }
+                        return $true
+                    }, $true) | ForEach-Object { $_.Name })
+            ($topLevel -join ', ') | Should -Be $file.BaseName -Because "Public/$($file.Name) holds one exported function named after the file"
+        }
+    }
+
     It 'imports and exports exactly FunctionsToExport and AliasesToExport' {
         $module = Import-Module -Name $ManifestPath -Force -PassThru -ErrorAction Stop
         (@($module.ExportedFunctions.Keys | Sort-Object) -join ', ') | Should -Be ($declaredFunctions -join ', ')
