@@ -36,17 +36,18 @@ paths = ['''^Scripts/General/Connect-Lidarr\.Tests\.ps1$''']
 [[rules]]
 id = "connection-string-password"
 description = "Password in a database connection string, after the server or user key"
-regex = '''(?i)(?:user\s*id|uid|server|data\s*source|initial\s*catalog|database)\s*=[^;\r\n]*;[^\r\n]*?\b(?:password|pwd)\s*=\s*([^;'"\s]{3,})'''
-secretGroup = 1
+regex = '''(?i)(?:user\s*id|uid|server|data\s*source|initial\s*catalog|database)\s*=[^;\r\n]*;[^\r\n]*?\b(?:password|pwd)\s*=\s*(?:'([^'\s+][^'\r\n]{2,})'|"([^"\s+][^"\r\n]{2,})"|([^;'"\s]{3,}))'''
 [rules.allowlist]
+# The value may be 'quoted', "quoted" or bare. No secretGroup: gitleaks reports the first capture
+# group that matched. A quoted capture may not start with a space or +, so concatenation such as
+# "...;Password=" + $pw + ";" is not a value.
 # Format placeholders and PowerShell expressions such as $($cred.GetNetworkCredential().Password).
 regexes = ['''(?i)^(?:\{\d+\}|\$[\w:{}().$]+|REDACTED\w*|<[^>]+>|\*+|x{3,})$''']
 
 [[rules]]
 id = "connection-string-password-first"
 description = "Password in a database connection string, before the server or user key"
-regex = '''(?i)\b(?:password|pwd)\s*=\s*([^;'"\s]{3,})\s*;[^\r\n]*?\b(?:user\s*id|uid|server|data\s*source|initial\s*catalog|database)\s*='''
-secretGroup = 1
+regex = '''(?i)\b(?:password|pwd)\s*=\s*(?:'([^'\s+][^'\r\n]{2,})'|"([^"\s+][^"\r\n]{2,})"|([^;'"\s]{3,}))\s*;[^\r\n]*?\b(?:user\s*id|uid|server|data\s*source|initial\s*catalog|database)\s*='''
 [rules.allowlist]
 regexes = ['''(?i)^(?:\{\d+\}|\$[\w:{}().$]+|REDACTED\w*|<[^>]+>|\*+|x{3,})$''']
 
