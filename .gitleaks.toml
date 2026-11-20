@@ -1,28 +1,62 @@
-# Custom gitleaks rules, on top of the defaults. CI (.github/workflows/gitleaks.yml) reads this
-# file automatically. The defaults miss PowerShell-style credentials, such as a password in a
-# SQL connection string or a literal passed to -Password, so these rules add them. Issue #108.
+# Custom gitleaks rules, on top of the defaults. The defaults miss PowerShell-style credentials,
+# such as a password in a SQL connection string or a literal passed to -Password, so these rules
+# add them. Issue #108.
+#
+# Trust model: CI (.github/workflows/gitleaks.yml) does not read this file from the change under
+# scan. For a pull request it loads the copy from the PR's base commit, and for a push to main the
+# copy from the commit before the push, so a change cannot weaken the rules that scan it. A rule
+# change takes effect for the changes after it merges. CI also ignores inline gitleaks:allow
+# comments and any .gitleaksignore file. The one exception is a base with no .gitleaks.toml at all
+# (the change that first adds this file): CI then uses the scanned copy and logs a warning.
 
 [extend]
 useDefault = true
 
-# Public Windows Known Folder GUIDs (KNOWNFOLDERID) trip gitleaks' generic-api-key rule.
+# Public Windows Known Folder GUIDs (KNOWNFOLDERID) in PowerShell code trip gitleaks'
+# generic-api-key rule. Only PowerShell files are exempt, so a UUID-shaped key in a .json,
+# .config or .ini file is still reported.
 [[allowlists]]
-description = "GUID-shaped values are not API keys"
+description = "GUID-shaped values in PowerShell files are not API keys"
 targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(?i)\.ps[md]?1$''']
 regexes = ['''^\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}?$''']
 
 [[rules]]
 id = "connection-string-password"
-description = "Password in a database connection string"
+description = "Password in a database connection string, after the server or user key"
 regex = '''(?i)(?:user\s*id|uid|server|data\s*source|initial\s*catalog|database)\s*=[^;\r\n]*;[^\r\n]*?\b(?:password|pwd)\s*=\s*([^;'"\s]{3,})'''
 secretGroup = 1
 [rules.allowlist]
-regexes = ['''(?i)^(?:\{\d+\}|\$[\w:{}()]+|REDACTED\w*|<[^>]+>|\*+|x{3,})$''']
+# Format placeholders and PowerShell expressions such as $($cred.GetNetworkCredential().Password).
+regexes = ['''(?i)^(?:\{\d+\}|\$[\w:{}().$]+|REDACTED\w*|<[^>]+>|\*+|x{3,})$''']
+
+[[rules]]
+id = "connection-string-password-first"
+description = "Password in a database connection string, before the server or user key"
+regex = '''(?i)\b(?:password|pwd)\s*=\s*([^;'"\s]{3,})\s*;[^\r\n]*?\b(?:user\s*id|uid|server|data\s*source|initial\s*catalog|database)\s*='''
+secretGroup = 1
+[rules.allowlist]
+regexes = ['''(?i)^(?:\{\d+\}|\$[\w:{}().$]+|REDACTED\w*|<[^>]+>|\*+|x{3,})$''']
 
 [[rules]]
 id = "powershell-plaintext-securestring"
 description = "Literal string converted with ConvertTo-SecureString -AsPlainText"
 regex = '''(?i)ConvertTo-SecureString\s+(?:-String\s+)?['"]([^'"$]{4,})['"][^\r\n]*-AsPlainText'''
+secretGroup = 1
+
+[[rules]]
+id = "powershell-plaintext-securestring-after"
+description = "Literal string after -AsPlainText in a ConvertTo-SecureString call"
+regex = '''(?i)ConvertTo-SecureString(?:\s+-\w+)*\s+-AsPlainText(?:\s+-\w+)*\s+['"]([^'"$]{4,})['"]'''
+secretGroup = 1
+
+[[rules]]
+id = "powershell-plaintext-securestring-piped"
+description = "Literal string piped to ConvertTo-SecureString -AsPlainText"
+# The literal must start an expression (line start, =, (, { or ;), so Get-Content 'C:\pw.txt' | ...
+# is not reported.
+regex = '''(?im)(?:^|[=({;])\s*['"]([^'"$]{4,})['"]\s*\|\s*ConvertTo-SecureString\b[^\r\n]*-AsPlainText'''
 secretGroup = 1
 
 [[rules]]
@@ -32,14 +66,22 @@ regex = '''(?i)\s-(?:Password|Passwd|Pwd|Pass|Secret|ApiKey|Token)\s+['"]([^'"$<
 secretGroup = 1
 [rules.allowlist]
 # Pester test files pass placeholder keys to mocked commands; real code is still scanned.
+# Elsewhere only a whole placeholder word is exempt (your-password-here, changeme, ***), never a
+# value that merely starts with my, test or sample.
 paths = ['''(?i)\.tests\.ps1$''']
 condition = "OR"
-regexes = ['''(?i)^(?:(?:your|my|test|fake|dummy|example|sample|placeholder)[-_ \w]*|\w*[-_ ]?(?:here|placeholder)|(?:api[-_ ]?)?key|password|secret|token|changeme|x{3,}|\*+)$''']
+regexes = ['''(?i)^(?:(?:your|my|test|fake|dummy|example|sample|placeholder)[-_ ]?(?:password|pass|pwd|secret|token|key|api[-_ ]?key)(?:[-_ ]?here)?|(?:your|the|enter)?[-_ ]?(?:password|secret|token|api[-_ ]?key|key)[-_ ]?here|(?:api[-_ ]?)?key|password|secret|token|changeme|placeholder|REDACTED\w*|x{3,}|\*+)$''']
 
 [[rules]]
 id = "password-assignment-literal"
-description = "Variable named like a password assigned a literal string"
-regex = '''(?i)\$(?:\w*(?:password|passwd|secret|apikey|token)\w*|\w*pw|\w+pwd|pass)\s*=\s*['"]([^'"$<]{4,})['"]'''
+description = "Variable or hashtable key named like a password assigned a literal string"
+regex = '''(?im)(?:\$(?:\w+:)?(?:\w*(?:password|passwd|secret|apikey|token)\w*|\w*pw|\w+pwd|\w*pass)|(?:^|[;{(,\s])(?:password|passwd|pwd))\s*=\s*['"]([^'"$<]{4,})['"]'''
 secretGroup = 1
-[rules.allowlist]
-regexes = ['''(?i)^(?:REDACTED\w*|changeme|password|example\w*|placeholder|dummy\w*)$''']
+[[rules.allowlists]]
+# Names that hold metadata about a credential, not the credential: $tokenType, $secretName,
+# $passwordFile, $TokenEndpoint, $passwordPolicy and similar. $env:GIT_ASKPASS and SSH_ASKPASS name a
+# helper program, not a password.
+regexTarget = "match"
+regexes = ['''(?i)^\$(?:\w+:)?\w*(?:askpass|type|name|file|path|dir|folder|uri|url|endpoint|policy|length|count|prompt|header|id|label|field|format|expiry|expiration|lifetime|version|mode|kind|pattern|regex|scope|audience|issuer|property|column|attribute|param|parameter)\s*=''']
+[[rules.allowlists]]
+regexes = ['''(?i)^(?:(?:your|my|test|fake|dummy|example|sample|placeholder)[-_ ]?(?:password|pass|pwd|secret|token|key|api[-_ ]?key)(?:[-_ ]?here)?|(?:your|the|enter)?[-_ ]?(?:password|secret|token|api[-_ ]?key|key)[-_ ]?here|REDACTED\w*|changeme|password|placeholder|x{3,}|\*+)$''']
