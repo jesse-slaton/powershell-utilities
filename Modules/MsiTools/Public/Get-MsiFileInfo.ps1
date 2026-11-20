@@ -24,7 +24,8 @@ function Get-MsiFileInfo {
 
     .PARAMETER Transform
         Optional path(s) to MST transform files, applied in order to each MSI database
-        before its properties are read.
+        before its properties are read. Each must be a file system path; a missing or
+        non-file-system transform is reported as an error for that MSI.
 
     .PARAMETER PropertyType
         Public returns only public properties (names in all upper case, which users can
@@ -88,7 +89,10 @@ function Get-MsiFileInfo {
                 $MSIDatabase = Invoke-MsiComMember -Target $WindowsInstaller -Name OpenDatabase -Arguments @($File, 0 <#Read-Only#>)
 
                 foreach ($MST in $Transform) {
-                    $MST = $PSCmdlet.GetUnresolvedProviderPathFromPSPath($MST)
+                    $MSTProvider = $null
+                    $MSTPath = $PSCmdlet.SessionState.Path.GetUnresolvedProviderPathFromPSPath($MST, [ref]$MSTProvider, [ref]$Drive)
+                    if ($MSTProvider.Name -ne 'FileSystem') { throw "Transform $MST is not a file system path ($($MSTProvider.Name) provider)" }
+                    $MST = $MSTPath
                     if (-not (Test-Path -LiteralPath $MST -PathType Leaf)) {
                         throw "Transform file not found: $MST"
                     }

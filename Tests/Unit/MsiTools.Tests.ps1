@@ -183,6 +183,17 @@ Describe 'Get-MsiFileInfo' {
         "$err" | Should -Match 'app\.msi: .*NoSuchDrive'
     }
 
+    It 'rejects a non-file-system transform with one error naming the MSI and the transform' {
+        # A file named PATH in the current directory is what Env:\PATH would wrongly resolve to.
+        Set-Content -Path (Join-Path $TestDrive 'PATH') -Value 'not a real mst'
+        Push-Location $TestDrive
+        try { $out = @(Get-MsiFileInfo -FilePath $msi -Transform 'Env:\PATH' -ErrorAction Continue 2>&1) } finally { Pop-Location }
+        $out.Count | Should -Be 1
+        $out[0] | Should -BeOfType [System.Management.Automation.ErrorRecord]
+        "$($out[0])" | Should -Match 'app\.msi: Transform Env:\\PATH is not a file system path'
+        Should -Invoke Invoke-MsiComMember -ModuleName MsiTools -Times 0 -Exactly -ParameterFilter { $Name -eq 'ApplyTransform' }
+    }
+
     It 'reports a COM failure as a non-terminating error that names the file' {
         Mock Invoke-MsiComMember -ModuleName MsiTools -ParameterFilter { $Name -eq 'OpenDatabase' } { throw 'Open database failed' }
         $result = Get-MsiFileInfo -FilePath $msi -ErrorVariable err -ErrorAction SilentlyContinue
