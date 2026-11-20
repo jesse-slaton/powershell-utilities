@@ -52,49 +52,42 @@ regex = '''(?i)\b(?:password|pwd)\s*=\s*(?:'([^'\s+][^'\r\n]{2,})'|"([^"\s+][^"\
 regexes = ['''(?i)^(?:\{\d+\}|\$[\w:{}().$]+|REDACTED\w*|<[^>]+>|\*+|x{3,})$''']
 
 # The PowerShell literal rules below: in 'single quotes' a $ is literal text, so the value may
-# contain one; a "double-quoted" value with a $ is expanded at run time, so it is not reported.
+# contain one, and even a value shaped like '$name' is reported (it is a literal string, not a
+# variable). A "double-quoted" value with a $ is expanded at run time, so it is not reported.
+# A single-quoted capture keeps its quotes ('...'): gitleaks' built-in global allowlist exempts
+# any secret shaped like a bare $name template variable, which would hide '$name' literals.
+# The placeholder allowlists below accept those quotes.
 [[rules]]
 id = "powershell-plaintext-securestring"
 description = "Literal string converted with ConvertTo-SecureString -AsPlainText"
-regex = '''(?i)ConvertTo-SecureString\s+(?:-String\s+)?(?:'([^'\r\n]{4,})'|"([^"$\r\n]{4,})")[^\r\n]*-AsPlainText'''
-[[rules.allowlists]]
-# A whole $name or $(...) value, such as '$secret' in script text that a script writes out.
-regexes = ['''^\$[\w:{}().$]+$''']
+regex = '''(?i)ConvertTo-SecureString\s+(?:-String\s+)?(?:('[^'\r\n]{4,}')|"([^"$\r\n]{4,})")[^\r\n]*-AsPlainText'''
 
 [[rules]]
 id = "powershell-plaintext-securestring-after"
 description = "Literal string after -AsPlainText in a ConvertTo-SecureString call"
-regex = '''(?i)ConvertTo-SecureString(?:\s+-\w+)*\s+-AsPlainText(?:\s+-\w+)*\s+(?:'([^'\r\n]{4,})'|"([^"$\r\n]{4,})")'''
-[[rules.allowlists]]
-regexes = ['''^\$[\w:{}().$]+$''']
+regex = '''(?i)ConvertTo-SecureString(?:\s+-\w+)*\s+-AsPlainText(?:\s+-\w+)*\s+(?:('[^'\r\n]{4,}')|"([^"$\r\n]{4,})")'''
 
 [[rules]]
 id = "powershell-plaintext-securestring-piped"
 description = "Literal string piped to ConvertTo-SecureString -AsPlainText"
 # The literal must start an expression (line start, =, (, { or ;), so Get-Content 'C:\pw.txt' | ...
 # is not reported.
-regex = '''(?im)(?:^|[=({;])\s*(?:'([^'\r\n]{4,})'|"([^"$\r\n]{4,})")\s*\|\s*ConvertTo-SecureString\b[^\r\n]*-AsPlainText'''
-[[rules.allowlists]]
-regexes = ['''^\$[\w:{}().$]+$''']
+regex = '''(?im)(?:^|[=({;])\s*(?:('[^'\r\n]{4,}')|"([^"$\r\n]{4,})")\s*\|\s*ConvertTo-SecureString\b[^\r\n]*-AsPlainText'''
 
 [[rules]]
 id = "powershell-password-literal-arg"
 description = "Literal value passed to a -Password style parameter"
-regex = '''(?i)\s-(?:Password|Passwd|Pwd|Pass|Secret|ApiKey|Token)\s+(?:'([^'<\r\n]{4,})'|"([^"$<\r\n]{4,})")'''
-[[rules.allowlists]]
-regexes = ['''^\$[\w:{}().$]+$''']
+regex = '''(?i)\s-(?:Password|Passwd|Pwd|Pass|Secret|ApiKey|Token)\s+(?:('[^'<\r\n]{4,}')|"([^"$<\r\n]{4,})")'''
 [[rules.allowlists]]
 # Only a whole placeholder word is exempt (your-password-here, changeme, ***), never a value that
 # merely starts with my, test or sample. Test files get no path exemption: a test that needs a
 # fake key uses one of these placeholder words.
-regexes = ['''(?i)^(?:(?:your|my|test|fake|dummy|example|sample|placeholder)[-_ ]?(?:password|pass|pwd|secret|token|key|api[-_ ]?key)(?:[-_ ]?here)?|(?:your|the|enter)?[-_ ]?(?:password|secret|token|api[-_ ]?key|key)[-_ ]?here|(?:api[-_ ]?)?key|password|secret|token|changeme|placeholder|REDACTED\w*|x{3,}|\*+)$''']
+regexes = ['''(?i)^'?(?:(?:your|my|test|fake|dummy|example|sample|placeholder)[-_ ]?(?:password|pass|pwd|secret|token|key|api[-_ ]?key)(?:[-_ ]?here)?|(?:your|the|enter)?[-_ ]?(?:password|secret|token|api[-_ ]?key|key)[-_ ]?here|(?:api[-_ ]?)?key|password|secret|token|changeme|placeholder|REDACTED\w*|x{3,}|\*+)'?$''']
 
 [[rules]]
 id = "password-assignment-literal"
 description = "Variable or hashtable key named like a password assigned a literal string"
-regex = '''(?im)(?:\$(?:\w+:)?(?:\w*(?:password|passwd|secret|apikey|token)\w*|\w*pw|\w+pwd|\w*pass)|(?:^|[;{(,\s])['"]?(?:password|passwd|pwd)['"]?)\s*=\s*(?:'([^'<\r\n]{4,})'|"([^"$<\r\n]{4,})")'''
-[[rules.allowlists]]
-regexes = ['''^\$[\w:{}().$]+$''']
+regex = '''(?im)(?:\$(?:\w+:)?(?:\w*(?:password|passwd|secret|apikey|token)\w*|\w*pw|\w+pwd|\w*pass)|(?:^|[;{(,\s])['"]?(?:password|passwd|pwd)['"]?)\s*=\s*(?:('[^'<\r\n]{4,}')|"([^"$<\r\n]{4,})")'''
 [[rules.allowlists]]
 # Names that hold metadata about a credential, not the credential: $tokenType, $secretName,
 # $passwordFile, $TokenEndpoint, $passwordPolicy and similar. $env:GIT_ASKPASS and SSH_ASKPASS name a
@@ -102,4 +95,4 @@ regexes = ['''^\$[\w:{}().$]+$''']
 regexTarget = "match"
 regexes = ['''(?i)^\$(?:\w+:)?\w*(?:askpass|type|name|file|path|dir|folder|uri|url|endpoint|policy|length|count|prompt|header|id|label|field|format|expiry|expiration|lifetime|version|mode|kind|pattern|regex|scope|audience|issuer|property|column|attribute|param|parameter)\s*=''']
 [[rules.allowlists]]
-regexes = ['''(?i)^(?:(?:your|my|test|fake|dummy|example|sample|placeholder)[-_ ]?(?:password|pass|pwd|secret|token|key|api[-_ ]?key)(?:[-_ ]?here)?|(?:your|the|enter)?[-_ ]?(?:password|secret|token|api[-_ ]?key|key)[-_ ]?here|REDACTED\w*|changeme|password|placeholder|x{3,}|\*+)$''']
+regexes = ['''(?i)^'?(?:(?:your|my|test|fake|dummy|example|sample|placeholder)[-_ ]?(?:password|pass|pwd|secret|token|key|api[-_ ]?key)(?:[-_ ]?here)?|(?:your|the|enter)?[-_ ]?(?:password|secret|token|api[-_ ]?key|key)[-_ ]?here|REDACTED\w*|changeme|password|placeholder|x{3,}|\*+)'?$''']
