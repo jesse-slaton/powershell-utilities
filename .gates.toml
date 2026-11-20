@@ -1,0 +1,12 @@
+# Local pre-push gate for the orchestrate gate-runner (scripts/gate-runner.py).
+# Runs the Pester suite as CI does (it includes the smoke parse + analyzer checks), but
+# only under the local pwsh: no Windows PowerShell 5.1 leg and no coverage. Also runs
+# actionlint over the workflows, which CI does not. See Tests/README.md.
+# The pester step is not marked pure: Pester also picks up gitignored *.Tests.ps1 files
+# and the result depends on the installed pwsh, so a tree-keyed cached pass could be stale.
+
+[prep_pr]
+steps = [
+  { name = "pester", run = '''pwsh -NoProfile -c '. ./Tests/Install-TestDependencies.ps1 *> $null; $c = New-PesterConfiguration; $c.Run.Path = "./Tests"; $c.Run.Exit = $true; $c.Output.Verbosity = "Normal"; Invoke-Pester -Configuration $c' ''', skip_if_absent = "pwsh" },
+  { name = "actionlint", run = "actionlint", skip_if_absent = "actionlint", pure = true },
+]

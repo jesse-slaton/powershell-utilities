@@ -33,7 +33,9 @@ param(
     [version]$ScriptAnalyzerVersion = '1.23.0'
 )
 
-$ErrorActionPreference = 'Stop'
+# No session-wide $ErrorActionPreference: the script is also dot-sourced, and a Stop set
+# here would leak into the caller's Pester run (CI runs the suite with the default
+# Continue). Each call that must stop on failure says so with -ErrorAction Stop.
 
 foreach ($module in @(
         @{ Name = 'Pester'; Version = $PesterVersion }
@@ -45,7 +47,7 @@ foreach ($module in @(
     }
     Write-Host "Installing $($module.Name) $($module.Version)"
     # -SkipPublisherCheck: Windows PowerShell 5.1 ships an old, differently signed Pester 3.4.
-    Install-Module -Name $module.Name -RequiredVersion $module.Version -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber
+    Install-Module -Name $module.Name -RequiredVersion $module.Version -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber -ErrorAction Stop
 }
 
 # Load the pinned versions into this session so a dot-sourced run (. ./Tests/Install-TestDependencies.ps1)
@@ -54,6 +56,6 @@ foreach ($module in @(
         @{ Name = 'Pester'; Version = $PesterVersion }
         @{ Name = 'PSScriptAnalyzer'; Version = $ScriptAnalyzerVersion }
     )) {
-    Get-Module -Name $module.Name | Where-Object Version -NE $module.Version | Remove-Module -Force
-    Import-Module -Name $module.Name -RequiredVersion $module.Version -Force -Global
+    Get-Module -Name $module.Name | Where-Object Version -NE $module.Version | Remove-Module -Force -ErrorAction Stop
+    Import-Module -Name $module.Name -RequiredVersion $module.Version -Force -Global -ErrorAction Stop
 }
