@@ -13,7 +13,7 @@
     that stops the loop is caught and written with Write-Error.
 
 .EXAMPLE
-    .\Set-MIGVPNProfile.ps1
+    .\Set-AnyConnectLocalProxy.ps1
 
     Updates the AnyConnect profiles and lists the result for each profile file.
 

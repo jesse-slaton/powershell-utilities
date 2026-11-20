@@ -1,3 +1,48 @@
+<#
+.SYNOPSIS
+    Records five seconds of WMI activity, matches it to the processes that made each call,
+    and writes the result to a CSV file and a JSON file.
+
+.DESCRIPTION
+    Changes system state when run. In order, the script:
+
+    - Disables and re-enables the Microsoft-Windows-WMI-Activity/Trace log, which clears it.
+    - Sets processcreationincludecmdline_enabled = 1 (DWORD) under
+      HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System\Audit, so process
+      creation events record the command line (only if the Audit key already exists). This
+      value is left in place.
+    - Enables success auditing for the "Process Creation" and "Process Termination"
+      subcategories with auditpol.exe.
+    - Waits 5 seconds, then disables the WMI trace log and disables success auditing for
+      both subcategories. Earlier settings are not restored: auditing ends up disabled
+      even if it was enabled before the script ran.
+
+    It then reads WMI-Activity event 11 and Security events 4688 and 4689 from the last two
+    hours, joins them on process ID with the bundled Join-Object function (every WMI
+    operation is kept, with Security-log details where a match exists), and reports the
+    time, process, WMI namespace and query, operation start, stop and elapsed time, command
+    line and parent process. The same rows are written to two files with the same base name:
+    C:\DesktopSupportTools\WMIUsage-<COMPUTERNAME>_<yyyy-MM-dd_HH-mm>.csv and
+    C:\DesktopSupportTools\WMIUsage-<COMPUTERNAME>_<yyyy-MM-dd_HH-mm>.json. The rows are
+    not written to the pipeline. The only pipeline output is the New-ItemProperty result for
+    the registry value and the status lines printed by the four auditpol.exe calls.
+
+.EXAMPLE
+    .\Find-WMIPigs.ps1
+
+    Run from an elevated PowerShell session while the suspected WMI-heavy process is busy.
+    Writes the CSV and JSON files under C:\DesktopSupportTools.
+
+.NOTES
+    Requires Windows and an elevated session (it writes HKLM, runs auditpol.exe and
+    wevtutil, and reads the Security log). C:\DesktopSupportTools must already exist, or
+    the CSV and JSON exports fail. Only WMI calls made during the 5-second window are captured,
+    because the trace log is cleared at the start. Process names for WMI calls without a
+    matching Security event come from Get-Process, so a process that has exited shows no
+    name. Join-Object is third-party code (see its own help for the source).
+#>
+
+
 function Join-Object {
     <#
     .SYNOPSIS

@@ -7,6 +7,9 @@
 .DESCRIPTION
     Check to see if there is an active VPN connection by using the Win32_NetworkAdapter and the
      Win32_NetworkAdapterConfiguration WMI classes.
+    Returns $true when an IP-enabled, non-physical adapter that is not excluded matches one of
+     the Like* criteria (checked in precedence order), and $false otherwise or on a CIM error.
+     Read-only.
     
 .PARAMETER NotMatchAdapterDescription
     Excludes on the network adapter description field using regex matching. Precedence order: 0.
@@ -32,7 +35,17 @@
 .EXAMPLE
     Test-VPNConnection
     
+.EXAMPLE
+    Test-VPNConnection -LikeAdapterDNSDomain '*corp.contoso.com' -DisplayNetworkAdapterTable
+
+    The LikeAdapterDescription defaults are still checked first. If none of them matches, an
+     adapter matches only when its DNS domain ends in corp.contoso.com (the default '*.*'
+     accepts any dotted domain). Writes the adapter tables to the host so the criteria can
+     be tuned.
+    
 .NOTES
+    Requires Windows (Win32_NetworkAdapter and Win32_NetworkAdapterConfiguration through CIM).
+    No admin rights or modules needed. The script only defines Test-VPNConnection.
     $AllNetworkAdapterConfigTable contains all criteria for detecting VPN connections.
     Try to choose criteria that:
       1) Uniquely identifies the network(s) of interest.

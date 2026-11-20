@@ -1,4 +1,5 @@
 ﻿#Requires -Version 3.0
+
 <#
 .SYNOPSIS
     Reports the monitors attached to one or more computers, from the EDID data in WMI.
@@ -62,6 +63,20 @@
     computer is queried without -ComputerName, so it needs no WinRM. A remote computer
     is queried with Get-CimInstance -ComputerName, which uses WinRM (WS-Management), so
     WinRM must be enabled on it and reachable.
+
+    A remote query needs an account that WinRM and WMI accept on the remote
+    computer (by default, an administrator on that computer).
+
+    The blank line after #Requires is required: without it PowerShell does not
+    recognize this block as the script's help.
+
+    Known issues (not fixed here):
+    - In Object format the script also writes the string "Running PowerShell
+      <version>." once per computer, before that computer's monitor objects.
+    - ComputerName accepts pipeline input, but the script has no process block, so
+      only the last piped computer is queried. Pass the names with -ComputerName.
+    - Query errors are suppressed (-ErrorAction SilentlyContinue): an unreachable
+      computer, or one with no monitor data, returns nothing and no error.
 #>
 
 [CmdletBinding()]

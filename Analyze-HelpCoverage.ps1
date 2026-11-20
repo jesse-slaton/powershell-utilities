@@ -12,9 +12,19 @@
     - at least one .EXAMPLE, or two when the script or function takes parameters
     - .NOTES (prerequisites such as admin rights, a vendor agent, or required modules)
 
-    A .ps1 file is graded once, on its script-level help. A .psm1 file is graded per
-    exported function: functions named in Export-ModuleMember -Function, or every
-    top-level function when the module has no Export-ModuleMember call.
+    A .ps1 file is graded once, on its script-level help, except a function library: a
+    .ps1 with no script-level help whose top-level statements are all function definitions
+    (no param() block, no begin/process blocks, no other top-level code) is graded per
+    function, since the standard allows help as the first thing inside a function body.
+    Libraries include module function files such as Modules/<Name>/Public/*.ps1 and
+    Private/*.ps1; Private helpers are graded too, because the standard covers every .ps1
+    under Modules/. A .ps1 that also runs code at top level is graded at script level,
+    because its help must describe what running the script does; when such a file has no
+    script-level help but defines functions, its Missing list starts with "top-level code
+    outside functions; graded at script level", so the report says why any function help
+    was not counted. A .psm1 file is graded per exported function:
+    functions named in Export-ModuleMember -Function, or every top-level function when
+    the module has no Export-ModuleMember call.
 
     Each item is Complete (meets every rule), Partial (has a .SYNOPSIS but misses at
     least one rule), or None (no .SYNOPSIS). Tests/ is exempt and never scanned.
@@ -99,6 +109,27 @@ function Get-ParameterName {
     @($Parameter | Where-Object { $_ } | ForEach-Object { $_.Name.VariablePath.UserPath })
 }
 
+function Get-FunctionParameterName {
+    param([System.Management.Automation.Language.FunctionDefinitionAst]$Function)
+    $params = if ($Function.Body.ParamBlock) { $Function.Body.ParamBlock.Parameters } else { $Function.Parameters }
+    Get-ParameterName $params
+}
+
+function Test-FunctionLibrary {
+    <#
+    .SYNOPSIS
+        True when a parsed .ps1 holds only function definitions: no param() block, no
+        begin/process/dynamicparam blocks, and every top-level statement defines a function.
+    #>
+    param([System.Management.Automation.Language.ScriptBlockAst]$Ast)
+    if ($Ast.ParamBlock -or $Ast.BeginBlock -or $Ast.ProcessBlock -or $Ast.DynamicParamBlock) { return $false }
+    if (-not $Ast.EndBlock -or $Ast.EndBlock.Statements.Count -eq 0) { return $false }
+    foreach ($statement in $Ast.EndBlock.Statements) {
+        if ($statement -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) { return $false }
+    }
+    $true
+}
+
 $scanRoots = @('Scripts', 'Modules') | ForEach-Object { Join-Path $RepoRoot $_ } | Where-Object { Test-Path $_ }
 $files = @(Get-ChildItem -Path $scanRoots -Recurse -File -Include '*.ps1', '*.psm1' | Sort-Object FullName)
 
@@ -139,15 +170,38 @@ $items = foreach ($file in $files) {
         }
 
         foreach ($function in $functions) {
-            $params = if ($function.Body.ParamBlock) { $function.Body.ParamBlock.Parameters } else { $function.Parameters }
-            $result = Get-HelpGrade -Help $function.GetHelpContent() -ParameterNames (Get-ParameterName $params)
+            $result = Get-HelpGrade -Help $function.GetHelpContent() -ParameterNames (Get-FunctionParameterName $function)
             [pscustomobject]@{ File = $relative; Function = $function.Name; Grade = $result.Grade; Missing = $result.Missing }
         }
     }
     else {
-        $params = if ($ast.ParamBlock) { $ast.ParamBlock.Parameters } else { @() }
-        $result = Get-HelpGrade -Help $ast.GetHelpContent() -ParameterNames (Get-ParameterName $params)
-        [pscustomobject]@{ File = $relative; Function = $null; Grade = $result.Grade; Missing = $result.Missing }
+        $scriptHelp = $ast.GetHelpContent()
+        $functions = @()
+        if (-not $scriptHelp -and (Test-FunctionLibrary $ast)) {
+            # A function library: nothing but function definitions. The standard allows help as
+            # the first thing inside each function body, so grade the functions.
+            $functions = @($ast.EndBlock.Statements)
+        }
+
+        if ($functions.Count -gt 0) {
+            foreach ($function in $functions) {
+                $result = Get-HelpGrade -Help $function.GetHelpContent() -ParameterNames (Get-FunctionParameterName $function)
+                [pscustomobject]@{ File = $relative; Function = $function.Name; Grade = $result.Grade; Missing = $result.Missing }
+            }
+        }
+        else {
+            $params = if ($ast.ParamBlock) { $ast.ParamBlock.Parameters } else { @() }
+            $result = Get-HelpGrade -Help $scriptHelp -ParameterNames (Get-ParameterName $params)
+            $scriptMissing = @($result.Missing)
+            $definesFunctions = $ast.EndBlock -and @($ast.EndBlock.Statements | Where-Object {
+                    $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] }).Count -gt 0
+            if (-not $scriptHelp -and $definesFunctions) {
+                # Say why any function help in the file was not counted, so the report does not
+                # read as if the file had no help at all.
+                $scriptMissing = @('top-level code outside functions; graded at script level') + $scriptMissing
+            }
+            [pscustomobject]@{ File = $relative; Function = $null; Grade = $result.Grade; Missing = $scriptMissing }
+        }
     }
 }
 $items = @($items)
@@ -159,7 +213,7 @@ foreach ($grade in 'Complete', 'Partial', 'None') { $byGrade[$grade] = @($items 
 function Format-Percent([int]$Count) { if ($total) { [math]::Round($Count / $total * 100, 1) } else { 0 } }
 
 Write-Host "`n=== Comment-based help coverage (Scripts/ and Modules/) ===" -ForegroundColor Cyan
-Write-Host "Files scanned: $($files.Count)   Items graded: $total (one per .ps1, one per exported .psm1 function)"
+Write-Host "Files scanned: $($files.Count)   Items graded: $total (one per .ps1 or .ps1 library function, one per exported .psm1 function)"
 Write-Host "Complete: $($byGrade.Complete.Count) ($(Format-Percent $byGrade.Complete.Count)%)" -ForegroundColor Green
 Write-Host "Partial:  $($byGrade.Partial.Count) ($(Format-Percent $byGrade.Partial.Count)%)" -ForegroundColor Yellow
 Write-Host "None:     $($byGrade.None.Count) ($(Format-Percent $byGrade.None.Count)%)" -ForegroundColor Red
