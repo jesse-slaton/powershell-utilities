@@ -14,7 +14,10 @@
               Prerequisites: Windows, and 32-bit Google Chrome installed in
               C:\Program Files (x86)\Google\Chrome\Application (the path is
               hard-coded). Run as the user who should get the shortcut. No admin
-              rights needed. Uses the WScript.Shell COM object.
+              rights needed. Uses the WScript.Shell COM object, which is part of the
+              Windows Script Host COM object model, not the VBScript engine; verified
+              with the VBScript feature removed on Windows Server 2025, build
+              26100.33828.
        .DESCRIPTION
               Creates one Desktop shortcut: the script writes
               "Test Chrome.lnk" to the current user's Desktop folder (despite the
