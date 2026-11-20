@@ -34,7 +34,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      # Checks out the base (for a PR) or the pushed commit, never the PR head.
+      # Checks out the default branch tip (for a PR) or the pushed commit, never the PR head.
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
