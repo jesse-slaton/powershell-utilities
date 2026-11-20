@@ -8,11 +8,11 @@ AddressWidth of the processor whose DeviceID is CPU0, and writes one string to t
 output: AMD64 when the width is 64, x86 when it is 32, and Unknown for any other
 value (including when no CPU0 instance is returned). It changes nothing.
 
-The script defines the GetMIGOSArchitecture function and then calls it, so running
+The script defines the Get-OSArchitecture function and then calls it, so running
 the file produces the result directly.
 
 .EXAMPLE
-.\Get-MIGOSArchitecture.ps1
+.\Get-OSArchitecture.ps1
 
 AMD64
 
@@ -31,7 +31,7 @@ want to keep.
 #>
 
 
-function GetMIGOSArchitecture {
+function Get-OSArchitecture {
     <#
     .SYNOPSIS
     Gets the Operating System architecture
@@ -40,7 +40,7 @@ function GetMIGOSArchitecture {
     Query WMI to determine OS Architecture, returning a string value of AMD64 or x86
     
     .EXAMPLE
-    GetMIGOSArchitecture
+    Get-OSArchitecture
     
     .OUTPUTS
     [string]
@@ -73,4 +73,4 @@ function GetMIGOSArchitecture {
     }
 }
 
-GetMIGOSArchitecture
+Get-OSArchitecture

@@ -20,7 +20,7 @@
 
 .NOTES
     Written as a Tanium sensor. Needs PowerShell 5.0 or later (the StartType property
-    of Get-Service). No admin rights needed. Set-MIGVPNProfile.ps1 makes the profile
+    of Get-Service). No admin rights needed. Set-AnyConnectLocalProxy.ps1 makes the profile
     change this check is meant to verify.
 #>
 $iphlpsvcReady = (Get-Service iphlpsvc).StartType -eq 'automatic' -and (Get-Service iphlpsvc).Status -eq 'running'
