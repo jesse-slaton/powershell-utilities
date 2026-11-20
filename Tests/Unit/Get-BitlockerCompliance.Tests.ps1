@@ -21,14 +21,15 @@ BeforeAll {
         $Fake
     }
 
-    # Stands in for an ADSI computer search result.
+    # Stands in for an ADSI computer search result. As in a real SearchResult, every property
+    # value is a one-element collection (ResultPropertyValueCollection), not a bare value.
     function New-FakeComputer {
         param ([string]$Name)
         [pscustomobject]@{
             Properties = @{
-                name        = $Name
-                whencreated = [datetime]'2020-01-02'
-                whenchanged = [datetime]'2021-03-04'
+                name        = @($Name)
+                whencreated = @([datetime]'2020-01-02')
+                whenchanged = @([datetime]'2021-03-04')
             }
         }
     }
@@ -378,12 +379,14 @@ Describe 'Get-BitlockerCompliance.ps1 recovery keys' {
             }
             Mock New-ComplianceAdSearcher -ParameterFilter { $Filter -eq '(ObjectCategory=msFVE-RecoveryInformation)' } {
                 $Recovery = foreach ($Computer in 'PC01', 'PC02', 'PC03') {
+                    # One-element collections, like a real ADSI SearchResult, so the adspath
+                    # Split runs through member enumeration exactly as it does against AD.
                     [pscustomobject]@{
                         Properties = @{
-                            adspath                  = "LDAP://CN=2020-01-02T10:00:00-08:00{$global:BlcTestKeyId},CN=$Computer,OU=Computers,DC=contoso,DC=com"
-                            name                     = "2020-01-02T10:00:00-08:00{$global:BlcTestKeyId}"
-                            whencreated              = [datetime]'2020-01-02'
-                            'msfve-recoverypassword' = $global:BlcTestFakeKey
+                            adspath                  = @("LDAP://CN=2020-01-02T10:00:00-08:00{$global:BlcTestKeyId},CN=$Computer,OU=Computers,DC=contoso,DC=com")
+                            name                     = @("2020-01-02T10:00:00-08:00{$global:BlcTestKeyId}")
+                            whencreated              = @([datetime]'2020-01-02')
+                            'msfve-recoverypassword' = @($global:BlcTestFakeKey)
                         }
                     }
                 }
