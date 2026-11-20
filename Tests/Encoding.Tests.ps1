@@ -2,7 +2,7 @@
 # Encoding check for tracked PowerShell files. Reads raw bytes only and never loads or runs a script.
 # UTF-16 files are invisible to byte-based secret scanners (gitleaks and similar), so no tracked
 # .ps1, .psm1 or .psd1 may be UTF-16. Every such file must be valid UTF-8 (with a BOM when Windows
-# PowerShell 5.1 has to read non-ASCII text) and hold no control character other than tab, LF, FF
+# PowerShell 5.1 has to read non-ASCII text, which the test enforces) and hold no control character other than tab, LF, FF
 # and CR. That rejects UTF-16 with or without a BOM: ASCII text in UTF-16 has NUL bytes, and other
 # BOM-less UTF-16 is either invalid UTF-8 or holds control bytes (U+0101 is the bytes 01 01).
 # Issue #108.
@@ -49,11 +49,21 @@ Describe 'Tracked PowerShell files are UTF-8, not UTF-16' {
                 if ($null -ne $text -and $text -match '[\x00-\x08\x0B\x0E-\x1F]') {
                     $reason = 'control character other than tab, LF, FF or CR (UTF-16 without a byte order mark?)'
                 }
+                # Windows PowerShell 5.1 reads a BOM-less file in the system code page, so non-ASCII
+                # UTF-8 text needs the BOM (EF BB BF). Pure ASCII reads the same either way.
+                elseif ($null -ne $text) {
+                    $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+                    $start = 0
+                    if ($hasBom) { $start = 3 }
+                    $nonAscii = $false
+                    for ($i = $start; $i -lt $bytes.Length; $i++) { if ($bytes[$i] -gt 0x7F) { $nonAscii = $true; break } }
+                    if ($nonAscii -and -not $hasBom) { $reason = 'non-ASCII UTF-8 text without a byte order mark (Windows PowerShell 5.1 misreads it)' }
+                }
             }
             if ($reason) { "$relativePath ($reason)" }
         }
 
-        $message = 'these files must be re-saved as UTF-8 with BOM, keeping their line endings, because secret scanners cannot read UTF-16: ' + (@($offenders) -join '; ')
+        $message = 'these files must be re-saved as UTF-8 with BOM, keeping their line endings (secret scanners cannot read UTF-16, and Windows PowerShell 5.1 misreads BOM-less non-ASCII UTF-8): ' + (@($offenders) -join '; ')
         @($offenders) | Should -BeNullOrEmpty -Because $message
     }
 }
