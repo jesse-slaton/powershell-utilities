@@ -1,0 +1,45 @@
+# Custom gitleaks rules, on top of the defaults. CI (.github/workflows/gitleaks.yml) reads this
+# file automatically. The defaults miss PowerShell-style credentials, such as a password in a
+# SQL connection string or a literal passed to -Password, so these rules add them. Issue #108.
+
+[extend]
+useDefault = true
+
+# Public Windows Known Folder GUIDs (KNOWNFOLDERID) trip gitleaks' generic-api-key rule.
+[[allowlists]]
+description = "GUID-shaped values are not API keys"
+targetRules = ["generic-api-key"]
+regexes = ['''^\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}?$''']
+
+[[rules]]
+id = "connection-string-password"
+description = "Password in a database connection string"
+regex = '''(?i)(?:user\s*id|uid|server|data\s*source|initial\s*catalog|database)\s*=[^;\r\n]*;[^\r\n]*?\b(?:password|pwd)\s*=\s*([^;'"\s]{3,})'''
+secretGroup = 1
+[rules.allowlist]
+regexes = ['''(?i)^(?:\{\d+\}|\$[\w:{}()]+|REDACTED\w*|<[^>]+>|\*+|x{3,})$''']
+
+[[rules]]
+id = "powershell-plaintext-securestring"
+description = "Literal string converted with ConvertTo-SecureString -AsPlainText"
+regex = '''(?i)ConvertTo-SecureString\s+(?:-String\s+)?['"]([^'"$]{4,})['"][^\r\n]*-AsPlainText'''
+secretGroup = 1
+
+[[rules]]
+id = "powershell-password-literal-arg"
+description = "Literal value passed to a -Password style parameter"
+regex = '''(?i)\s-(?:Password|Passwd|Pwd|Pass|Secret|ApiKey|Token)\s+['"]([^'"$<]{4,})['"]'''
+secretGroup = 1
+[rules.allowlist]
+# Pester test files pass placeholder keys to mocked commands; real code is still scanned.
+paths = ['''(?i)\.tests\.ps1$''']
+condition = "OR"
+regexes = ['''(?i)^(?:(?:your|my|test|fake|dummy|example|sample|placeholder)[-_ \w]*|\w*[-_ ]?(?:here|placeholder)|(?:api[-_ ]?)?key|password|secret|token|changeme|x{3,}|\*+)$''']
+
+[[rules]]
+id = "password-assignment-literal"
+description = "Variable named like a password assigned a literal string"
+regex = '''(?i)\$(?:\w*(?:password|passwd|secret|apikey|token)\w*|\w*pw|\w+pwd|pass)\s*=\s*['"]([^'"$<]{4,})['"]'''
+secretGroup = 1
+[rules.allowlist]
+regexes = ['''(?i)^(?:REDACTED\w*|changeme|password|example\w*|placeholder|dummy\w*)$''']
