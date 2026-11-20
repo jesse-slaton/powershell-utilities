@@ -10,7 +10,9 @@ permissions:
 
 concurrency:
   group: gitleaks-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel only stale pull request runs. A push to main scans before..sha, so a cancelled push
+  # run would leave its commits never scanned.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # gitleaks release binary, verified against the release's published
@@ -53,16 +55,69 @@ jobs:
         run: |
           set -euo pipefail
           gitleaks version
+          zero=0000000000000000000000000000000000000000
+
+          # gitleaks exits 0 when git log fails ("0 commits scanned"), so every commit is
+          # checked here first and an unreadable range fails the job instead of passing it.
+          require_commit() {
+            if [ -z "$1" ] || ! git cat-file -e "$1^{commit}" 2>/dev/null; then
+              echo "::error::$2 commit '$1' is not in the clone; refusing to scan an unreadable range"
+              exit 1
+            fi
+          }
+
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            log_opts="${PR_BASE_SHA}..${PR_HEAD_SHA}"
-          elif [ "$PUSH_BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
-            # A new branch has no previous commit: scan just the pushed commit.
-            log_opts="-1 ${PUSH_SHA}"
-          elif ! git cat-file -e "${PUSH_BEFORE_SHA}^{commit}" 2>/dev/null; then
-            echo "::warning::previous commit ${PUSH_BEFORE_SHA} is not in the history (force push?); scanning only ${PUSH_SHA}"
-            log_opts="-1 ${PUSH_SHA}"
+            require_commit "$PR_BASE_SHA" "pull request base"
+            require_commit "$PR_HEAD_SHA" "pull request head"
+            range="${PR_BASE_SHA}..${PR_HEAD_SHA}"
+            scanned_sha="$PR_HEAD_SHA"
+            config_sha="$PR_BASE_SHA"
           else
-            log_opts="${PUSH_BEFORE_SHA}..${PUSH_SHA}"
+            require_commit "$PUSH_SHA" "pushed"
+            if [ -n "$PUSH_BEFORE_SHA" ] && [ "$PUSH_BEFORE_SHA" != "$zero" ] &&
+              git cat-file -e "${PUSH_BEFORE_SHA}^{commit}" 2>/dev/null; then
+              range="${PUSH_BEFORE_SHA}..${PUSH_SHA}"
+              config_sha="$PUSH_BEFORE_SHA"
+            else
+              # New branch or force push: there is no known-scanned previous commit, so scan
+              # every commit reachable from the pushed one, not just the tip.
+              echo "::warning::previous commit '${PUSH_BEFORE_SHA}' is not in the history (new branch or force push?); scanning the full history of ${PUSH_SHA}"
+              range="${PUSH_SHA}"
+              config_sha="$PUSH_SHA"
+            fi
+            scanned_sha="$PUSH_SHA"
           fi
+          if ! count=$(git rev-list --count "$range" 2>/dev/null); then
+            echo "::error::git rev-list cannot read the range '${range}'; refusing to scan it"
+            exit 1
+          fi
+          echo "Range ${range}: ${count} commits"
+
+          # Rules come from the base, not from the change under scan, so a change cannot weaken
+          # its own scan (see the trust model in .gitleaks.toml).
+          config="$RUNNER_TEMP/gitleaks.toml"
+          if git cat-file -e "${config_sha}:.gitleaks.toml" 2>/dev/null; then
+            git show "${config_sha}:.gitleaks.toml" > "$config"
+            echo "Rules: .gitleaks.toml from ${config_sha}"
+          elif git cat-file -e "${scanned_sha}:.gitleaks.toml" 2>/dev/null; then
+            git show "${scanned_sha}:.gitleaks.toml" > "$config"
+            echo "::warning::${config_sha} has no .gitleaks.toml, so this change introduces it; scanning with the copy from ${scanned_sha}, which this change controls"
+          else
+            printf '[extend]\nuseDefault = true\n' > "$config"
+            echo "::warning::no .gitleaks.toml in ${config_sha} or ${scanned_sha}; scanning with the gitleaks defaults"
+          fi
+
+          # Ignore inline gitleaks:allow comments and any .gitleaksignore. gitleaks reads
+          # <source>/.gitleaksignore even when --gitleaks-ignore-path is set, so the checkout's
+          # copy is deleted (this checkout is disposable) and the flag points at an empty file.
+          rm -rf -- .gitleaksignore
+          ignore="$RUNNER_TEMP/empty.gitleaksignore"
+          : > "$ignore"
+
+          # first-parent: git log -p shows no diff for a merge commit, so without it a secret
+          # added in a merge commit would not be scanned.
+          log_opts="--diff-merges=first-parent ${range}"
           echo "Scanning: git log ${log_opts}"
-          gitleaks git --no-banner --redact --exit-code 1 --log-opts="${log_opts}" .
+          gitleaks git --no-banner --redact --exit-code 1 \
+            --config "$config" --ignore-gitleaks-allow --gitleaks-ignore-path "$ignore" \
+            --log-opts="${log_opts}" .
