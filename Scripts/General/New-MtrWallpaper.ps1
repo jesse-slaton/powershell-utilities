@@ -32,7 +32,7 @@ function New-MtrWallpaper {
         .SYNOPSIS
         Configure a new wallpaper for Microsoft Teams Room (MTR) System
         .DESCRIPTION
-        Configure a new wallpaper for Microsoft Teams Room (MTR) System. This is done by randomly choosing a .jpg file from a folder of images. Wallpaper is then copied to the proper folder, and a corresponding XML file is also written. When the system reboots as part of its normal scheduled nightly maintenance, the new wallpaper is set for the 'Custom' them in MTR.
+        Configure a new wallpaper for Microsoft Teams Room (MTR) System. This is done by randomly choosing a .jpg file from a folder of images. Wallpaper is then copied to the proper folder, and a corresponding XML file is also written. When the system reboots as part of its normal scheduled nightly maintenance, the new wallpaper is set for the 'Custom' theme in MTR.
         Any wallpaper.jpg and SkypeSettings.xml left in the folder are deleted first. If the Wallpapers subfolder holds no .jpg file, nothing new is written. The function returns no output. Running the script calls New-MtrWallpaper once with the default folder.
         .PARAMETER ThisRoot
         The MTR app LocalState folder. It must contain a Wallpapers subfolder of .jpg images; wallpaper.jpg and SkypeSettings.xml are written here. Defaults to the LocalState folder of the Skype account's Microsoft.SkypeRoomSystem package.
