@@ -32,10 +32,61 @@ General-purpose PowerShell utilities for system administration
 ```
 powershell-utilities/
   Scripts/       # Scripts grouped by category (ActiveDirectory, Network, System, ...)
-  Modules/       # PowerShell modules
+  Modules/       # PowerShell modules, one folder per module (see "Modules" below)
   Tests/         # Pester tests
 ```
 
+## Modules
+
+| Module | Exports | Replaces |
+| --- | --- | --- |
+| `MsiTools` | `Format-MsiLog` (alias `Colorize-MsiLog`), `Get-MsiFileInfo` (alias `Get-MSIProperties`) | `Modules/MyMsiLogColorizer.psm1`, `Scripts/FileSystem/Get-MSIFileInfo.ps1` |
+
+Modules are not published to any gallery. Install by path: import the manifest from a clone,
+
+```powershell
+Import-Module ./Modules/MsiTools/MsiTools.psd1
+Get-Content C:\Temp\install.log | Format-MsiLog
+```
+
+or copy the module folder into a folder on `$env:PSModulePath` and run `Import-Module MsiTools`.
+Publishing to the PowerShell Gallery, if wanted, gets its own issue.
+
+### Module layout standard
+
+Every module follows this layout; `Tests/Modules.Tests.ps1` enforces it.
+
+```
+Modules/
+  <Name>/
+    <Name>.psd1        # manifest
+    <Name>.psm1        # loader: dot-sources Private/*.ps1 then Public/*.ps1, exports Public
+    Public/<Verb-Noun>.ps1   # one exported function per file, file named after the function
+    Private/*.ps1      # internal helpers, never exported
+Tests/Unit/<Name>.Tests.ps1  # behavior tests for the module
+```
+
+- `Modules/` holds only module folders. Scripts live under `Scripts/<Category>/`.
+- Use approved verbs. When a function is renamed, keep the old name as an `[Alias()]` on the
+  function and list it in `AliasesToExport`.
+- Comment-based help goes inside each function body and meets the standard below.
+
+Manifest rules:
+
+| Key | Rule |
+| --- | --- |
+| `RootModule` | `<Name>.psm1` |
+| `FunctionsToExport` | Explicit list, no wildcard; exactly the `Public/*.ps1` file names |
+| `AliasesToExport`, `CmdletsToExport`, `VariablesToExport` | Explicit lists, `@()` when empty |
+| `PowerShellVersion` | `'5.1'` |
+| `CompatiblePSEditions` | `@('Desktop', 'Core')` |
+| `RequiredModules` | Declared, `@()` when there are none |
+
+Module behavior tests live in `Tests/Unit/` with the script tests rather than inside the module
+folder: CI runs `./Tests` on Windows PowerShell 5.1 and PowerShell 7, the shared harness is there,
+and the orphaned-test check covers them. A test imports the manifest (importing only defines
+functions) and mocks with `-ModuleName <Name>`; wrap COM, registry, network and other
+machine-touching calls in a `Private/` helper so they can be mocked on any OS.
 
 ## Prerequisites
 
