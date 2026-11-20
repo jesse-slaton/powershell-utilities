@@ -54,9 +54,12 @@ Describe 'Module <Name>' -ForEach $script:moduleCases {
         $data.PowerShellVersion | Should -Be '5.1'
         (@($data.CompatiblePSEditions | Sort-Object) -join ', ') | Should -Be 'Core, Desktop'
         $data.ContainsKey('RequiredModules') | Should -BeTrue -Because 'RequiredModules is declared even when empty'
-        $data.ContainsKey('AliasesToExport') | Should -BeTrue -Because 'AliasesToExport is declared even when empty'
+        foreach ($key in 'AliasesToExport', 'CmdletsToExport', 'VariablesToExport') {
+            $data.ContainsKey($key) | Should -BeTrue -Because "$key is declared even when empty"
+        }
         $declaredFunctions | Should -Not -BeNullOrEmpty
-        @($declaredFunctions + $declaredAliases) -match '\*' | Should -BeNullOrEmpty -Because 'export lists are explicit, never wildcards'
+        $allExports = @($declaredFunctions + $declaredAliases + @($data.CmdletsToExport) + @($data.VariablesToExport))
+        @($allExports -match '\*') | Should -BeNullOrEmpty -Because 'export lists are explicit, never wildcards'
     }
 
     It 'lists every Public/*.ps1 in FunctionsToExport' {
