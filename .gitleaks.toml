@@ -6,8 +6,9 @@
 # scan. For a pull request it loads the copy from the PR's base commit, and for a push to main the
 # copy from the commit before the push, so a change cannot weaken the rules that scan it. A rule
 # change takes effect for the changes after it merges. CI also ignores inline gitleaks:allow
-# comments and any .gitleaksignore file. The one exception is a base with no .gitleaks.toml at all
-# (the change that first adds this file): CI then uses the scanned copy and logs a warning.
+# comments and any .gitleaksignore file. A base with no .gitleaks.toml at all (before the change
+# that first adds this file merges) is scanned with the built-in gitleaks rules only, and CI logs a
+# warning. A push to main whose previous commit is not an ancestor fails instead of being scanned.
 
 [extend]
 useDefault = true
