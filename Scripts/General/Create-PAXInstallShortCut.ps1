@@ -14,7 +14,10 @@
               Prerequisites: Windows. The shortcut only works if
               C:\DesktopSupportTools\PAX\install.cmd has been staged separately.
               Run as the user who should get the shortcut. No admin rights needed
-              to create it. Uses the WScript.Shell COM object.
+              to create it. Uses the WScript.Shell COM object, which is part of the
+              Windows Script Host COM object model, not the VBScript engine; verified
+              with the VBScript feature removed on Windows Server 2025, build
+              26100.33828.
        .DESCRIPTION
               Creates one Desktop shortcut: the script writes
               "Install IBM PAX.lnk" to the current user's Desktop folder (despite the

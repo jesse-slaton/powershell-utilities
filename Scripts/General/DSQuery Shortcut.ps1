@@ -22,7 +22,9 @@
 .NOTES
     Requires administrator rights (writes to the Public desktop and the all-users Start
     Menu). The dialog is only useful on a domain-joined computer. Uses the WScript.Shell
-    COM object, so Windows only.
+    COM object, so Windows only. The shortcut dependency is the Windows Script Host COM
+    object model (WScript.Shell), not the VBScript engine; verified with the VBScript
+    feature removed on Windows Server 2025, build 26100.33828.
 #>
 
 ###Customize These Variables###
