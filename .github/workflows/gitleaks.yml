@@ -54,7 +54,10 @@ jobs:
           case "$PR_HEAD_SHA" in
             *[!0-9a-f]* | '') echo "::error::pull request head '$PR_HEAD_SHA' is not a commit SHA"; exit 1 ;;
           esac
-          git fetch --no-tags origin "$PR_HEAD_SHA"
+          if ! git fetch --no-tags origin "$PR_HEAD_SHA"; then
+            echo "::error::cannot fetch pull request head ${PR_HEAD_SHA}; refusing to pass an unscanned PR"
+            exit 1
+          fi
 
       - name: Install gitleaks
         run: |
