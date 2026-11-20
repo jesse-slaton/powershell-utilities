@@ -1,8 +1,9 @@
 #Requires -Version 5.1
 # Encoding check for tracked PowerShell files. Reads raw bytes only and never loads or runs a script.
-# UTF-16 files are invisible to byte-based secret scanners (gitleaks and similar), so every
-# tracked .ps1, .psm1 and .psd1 must be UTF-8 (with a BOM when Windows PowerShell 5.1 has to
-# read non-ASCII text). Issue #108.
+# UTF-16 files are invisible to byte-based secret scanners (gitleaks and similar), so no tracked
+# .ps1, .psm1 or .psd1 may be UTF-16. The check rejects UTF-16 only; it does not prove a file is
+# UTF-8 (save as UTF-8, with a BOM when Windows PowerShell 5.1 has to read non-ASCII text).
+# Issue #108.
 
 BeforeAll {
     $script:repoRoot = Split-Path -Parent $PSScriptRoot
@@ -12,8 +13,11 @@ BeforeAll {
         throw 'git is not on PATH. Tests/Encoding.Tests.ps1 needs git ls-files to list tracked PowerShell files.'
     }
 
-    # -z keeps names with spaces or non-ASCII characters intact (no quoting or escaping).
-    $raw = & git -C $script:repoRoot ls-files -z -- '*.ps1' '*.psm1' '*.psd1'
+    # -z stops git quoting or escaping names with spaces or non-ASCII characters. Windows
+    # PowerShell 5.1 still decodes native output with the console code page, so a non-ASCII name
+    # can arrive garbled; ReadAllBytes then throws, which fails the test loudly rather than
+    # skipping the file. :(icase) also matches upper-case extensions such as .PS1.
+    $raw = & git -C $script:repoRoot ls-files -z -- ':(icase)*.ps1' ':(icase)*.psm1' ':(icase)*.psd1'
     if ($LASTEXITCODE -ne 0) {
         throw "git ls-files failed with exit code $LASTEXITCODE in '$($script:repoRoot)'."
     }
