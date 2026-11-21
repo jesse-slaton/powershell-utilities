@@ -5,8 +5,8 @@ BeforeAll {
     # and recent PowerShell 7 releases no longer ship Install-Module (PowerShellGet v2).
     # Register-CommandStub stands in only for whichever is missing.
     Import-Module "$PSScriptRoot/TestHelpers.psm1" -Force
-    Register-CommandStub -Name Install-PSResource -Parameter Name, Version, Scope -Switch TrustRepository, AcceptLicense, Quiet
-    Register-CommandStub -Name Install-Module -Parameter Name, RequiredVersion, Scope -Switch Force, SkipPublisherCheck, AllowClobber
+    Register-CommandStub -Name Install-PSResource -Parameter Name, Version, Repository, Scope -Switch TrustRepository, AcceptLicense, Quiet
+    Register-CommandStub -Name Install-Module -Parameter Name, RequiredVersion, Repository, Scope -Switch Force, SkipPublisherCheck, AllowClobber
 
     # Runs the installer with every install, load and unload call mocked, and returns what it
     # printed. Unless a test mocks Get-Module -ListAvailable itself, nothing is installed yet.
@@ -34,12 +34,12 @@ Describe 'Install-TestDependencies.ps1' {
             $script:Output = Invoke-Installer
         }
 
-        It 'installs each pinned version with Install-PSResource for the current user' {
+        It 'installs each pinned version with Install-PSResource from PSGallery for the current user' {
             Should -Invoke Install-PSResource -Times 1 -Exactly -Scope Context -ParameterFilter {
-                $Name -eq 'Pester' -and $Version -eq '5.6.1' -and $Scope -eq 'CurrentUser' -and $TrustRepository
+                $Name -eq 'Pester' -and $Version -eq '5.6.1' -and $Repository -eq 'PSGallery' -and $Scope -eq 'CurrentUser' -and $TrustRepository
             }
             Should -Invoke Install-PSResource -Times 1 -Exactly -Scope Context -ParameterFilter {
-                $Name -eq 'PSScriptAnalyzer' -and $Version -eq '1.23.0' -and $Scope -eq 'CurrentUser' -and $TrustRepository
+                $Name -eq 'PSScriptAnalyzer' -and $Version -eq '1.23.0' -and $Repository -eq 'PSGallery' -and $Scope -eq 'CurrentUser' -and $TrustRepository
             }
         }
 
@@ -91,7 +91,7 @@ Describe 'Install-TestDependencies.ps1' {
             $output = Invoke-Installer
             Should -Invoke Install-PSResource -Times 0 -Exactly
             Should -Invoke Install-Module -Times 1 -Exactly -ParameterFilter {
-                $Name -eq 'Pester' -and $RequiredVersion -eq '5.6.1' -and $Scope -eq 'CurrentUser' -and $SkipPublisherCheck
+                $Name -eq 'Pester' -and $RequiredVersion -eq '5.6.1' -and $Repository -eq 'PSGallery' -and $Scope -eq 'CurrentUser' -and $SkipPublisherCheck
             }
             $output | Should -Contain 'Installing Pester 5.6.1 with Install-Module'
         }

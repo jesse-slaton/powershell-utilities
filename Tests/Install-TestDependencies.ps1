@@ -72,14 +72,16 @@ foreach ($module in @(
         $TestDependencyInstaller = Get-TestDependencyInstaller
     }
     Write-Host "Installing $($module.Name) $($module.Version) with $TestDependencyInstaller"
+    # -Repository PSGallery: without it both commands take the first match from any registered
+    # repository, so a pinned version could come from a different source.
     if ($TestDependencyInstaller -eq 'Install-PSResource') {
         # An exact -Version installs that version only. PSResourceGet has no publisher check,
         # so the old, differently signed Pester 3.4 in Windows PowerShell 5.1 does not block it.
-        Install-PSResource -Name $module.Name -Version $module.Version.ToString() -Scope CurrentUser -TrustRepository -AcceptLicense -Quiet -ErrorAction Stop
+        Install-PSResource -Name $module.Name -Version $module.Version.ToString() -Repository PSGallery -Scope CurrentUser -TrustRepository -AcceptLicense -Quiet -ErrorAction Stop
     }
     else {
         # -SkipPublisherCheck: Windows PowerShell 5.1 ships an old, differently signed Pester 3.4.
-        Install-Module -Name $module.Name -RequiredVersion $module.Version -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber -ErrorAction Stop
+        Install-Module -Name $module.Name -RequiredVersion $module.Version -Repository PSGallery -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber -ErrorAction Stop
     }
 }
 
