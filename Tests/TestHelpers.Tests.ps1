@@ -176,7 +176,6 @@ Describe 'Get-PowerShellEncodingProblem' {
         @{ Case = 'a file that is only a BOM'; Make = { $script:Bom } }
         @{ Case = 'an empty file'; Make = { [byte[]]@() } }
     ) {
-        param ($Case, $Make)
         # @() then [byte[]]: an empty array returned from a scriptblock would otherwise unroll to $null.
         $bytes = [byte[]]@(& $Make)
         Get-PowerShellEncodingProblem -Bytes $bytes | Should -BeNullOrEmpty
@@ -190,7 +189,6 @@ Describe 'Get-PowerShellEncodingProblem' {
         @{ Case = 'invalid UTF-8'; Expected = 'not valid UTF-8*'; Make = { [byte[]](0x41, 0xC3, 0x28) } }
         @{ Case = 'a control byte in ASCII text'; Expected = 'control character other than tab, LF, FF or CR*'; Make = { [byte[]](0x41, 0x01, 0x42) } }
     ) {
-        param ($Case, $Expected, $Make)
         $bytes = [byte[]]@(& $Make)
         Get-PowerShellEncodingProblem -Bytes $bytes | Should -BeLike $Expected
     }
