@@ -98,7 +98,10 @@ machine-touching calls in a `Private/` helper so they can be mocked on any OS.
 . ./Tests/Install-TestDependencies.ps1
 
 # For specific scripts, you may also need:
-# Install-PSResource AWSPowerShell -Scope CurrentUser   (the S3 upload scripts)
+# AWSPowerShell, for the S3 upload scripts. PowerShell 7.4+ has Install-PSResource; stock
+# Windows PowerShell 5.1 does not, so use Install-Module there:
+#   Install-PSResource AWSPowerShell -Repository PSGallery -Scope CurrentUser   # PowerShell 7.4+
+#   Install-Module AWSPowerShell -Repository PSGallery -Scope CurrentUser       # Windows PowerShell 5.1
 # ActiveDirectory ships with RSAT, not the PowerShell Gallery.
 ```
 
