@@ -61,31 +61,6 @@ jobs:
           $config.CodeCoverage.OutputPath = 'coverage.xml'
           Invoke-Pester -Configuration $config
 
-      - name: PSScriptAnalyzer warnings (informational)
-        if: always()
-        continue-on-error: true
-        run: |
-          Import-Module PSScriptAnalyzer -RequiredVersion 1.23.0
-          './Scripts', './Modules' |
-            ForEach-Object { Invoke-ScriptAnalyzer -Path $_ -Recurse -Severity Warning } |
-            Sort-Object ScriptName, Line |
-            Format-Table -AutoSize ScriptName, Line, RuleName, Message |
-            Out-String -Width 400
-
-      - name: PSScriptAnalyzer compatibility (informational)
-        if: always()
-        continue-on-error: true
-        run: |
-          Import-Module PSScriptAnalyzer -RequiredVersion 1.23.0
-          $rules = 'PSUseCompatibleSyntax', 'PSUseCompatibleCommands', 'PSUseCompatibleTypes'
-          $findings = @('./Scripts', './Modules' |
-              ForEach-Object { Invoke-ScriptAnalyzer -Path $_ -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -IncludeRule $rules })
-          "$($findings.Count) compatibility findings"
-          $findings |
-            Sort-Object ScriptName, Line |
-            Format-Table -AutoSize ScriptName, Line, RuleName, Message |
-            Out-String -Width 400
-
       - name: Help coverage report (informational)
         if: always()
         continue-on-error: true
@@ -101,3 +76,50 @@ jobs:
             coverage.xml
             help-coverage-report.json
           if-no-files-found: ignore
+
+  # Informational only: never fails the build and is not a required check. A job of its own so
+  # the required Pester jobs do not wait for it, and run once, on PowerShell 7, because the
+  # analyzer's findings do not depend on the host edition (issue #128). Sequential on purpose:
+  # PSScriptAnalyzer is not thread-safe under ForEach-Object -Parallel (race errors, dropped
+  # findings), and splitting it across processes gave no speedup when measured.
+  analyzer:
+    name: PSScriptAnalyzer (informational)
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Pester and PSScriptAnalyzer
+        run: ./Tests/Install-TestDependencies.ps1
+
+      - name: PSScriptAnalyzer warnings (informational)
+        continue-on-error: true
+        run: |
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.23.0
+          $findings = @('./Scripts', './Modules' |
+              ForEach-Object { Invoke-ScriptAnalyzer -Path $_ -Recurse -Severity Warning })
+          "$($findings.Count) warnings"
+          $findings |
+            Sort-Object ScriptName, Line |
+            Format-Table -AutoSize ScriptName, Line, RuleName, Message |
+            Out-String -Width 400
+
+      - name: PSScriptAnalyzer compatibility (informational)
+        continue-on-error: true
+        run: |
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.23.0
+          $rules = 'PSUseCompatibleSyntax', 'PSUseCompatibleCommands', 'PSUseCompatibleTypes'
+          $findings = @('./Scripts', './Modules' |
+              ForEach-Object { Invoke-ScriptAnalyzer -Path $_ -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -IncludeRule $rules })
+          "$($findings.Count) compatibility findings"
+          $findings |
+            Sort-Object ScriptName, Line |
+            Format-Table -AutoSize ScriptName, Line, RuleName, Message |
+            Out-String -Width 400

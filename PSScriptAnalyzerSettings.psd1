@@ -2,7 +2,8 @@
 #
 # Enables the compatibility rules so Windows PowerShell 5.1 problems show up without a
 # Windows host. Every other default rule still runs. CI reports these findings in the
-# "PSScriptAnalyzer compatibility (informational)" step; to run them locally:
+# "PSScriptAnalyzer compatibility (informational)" step of the "PSScriptAnalyzer
+# (informational)" job; to run them locally:
 #
 #   Invoke-ScriptAnalyzer -Path ./Scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 `
 #       -IncludeRule PSUseCompatibleSyntax, PSUseCompatibleCommands, PSUseCompatibleTypes
