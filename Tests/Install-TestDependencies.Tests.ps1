@@ -96,6 +96,26 @@ Describe 'Install-TestDependencies.ps1' {
             $output | Should -Contain 'Installing Pester 5.6.1 with Install-Module'
         }
 
+        It 'needs no install command when the pinned versions are already installed' {
+            $script:PinnedVersionsInstalled = $true
+            try {
+                Mock Get-Module -ParameterFilter { $ListAvailable } {
+                    switch ($Name) {
+                        'Pester' { [pscustomobject]@{ Name = 'Pester'; Version = [version]'5.6.1' } }
+                        'PSScriptAnalyzer' { [pscustomobject]@{ Name = 'PSScriptAnalyzer'; Version = [version]'1.23.0' } }
+                    }
+                }
+                Mock Get-Command -ParameterFilter { $Name -eq 'Install-Module' } { }
+                { Invoke-Installer } | Should -Not -Throw
+                Should -Invoke Install-PSResource -Times 0 -Exactly
+                Should -Invoke Install-Module -Times 0 -Exactly
+                Should -Invoke Import-Module -Times 2 -Exactly
+            }
+            finally {
+                $script:PinnedVersionsInstalled = $false
+            }
+        }
+
         It 'stops with an error on PowerShell 7 instead of falling back' -Skip:($PSVersionTable.PSEdition -ne 'Core') {
             { Invoke-Installer } | Should -Throw '*Install the Microsoft.PowerShell.PSResourceGet module*'
             Should -Invoke Install-Module -Times 0 -Exactly

@@ -46,15 +46,19 @@ param(
 # PSResourceGet when present; Install-Module only as the Windows PowerShell 5.1 fallback,
 # because stock 5.1 ships PowerShellGet 1.0.0.1 without PSResourceGet. Never a silent
 # fallback: the chosen command is printed, and PowerShell 7 without it is an error.
-$TestDependencyInstaller = if (Get-Command -Name Install-PSResource -ErrorAction SilentlyContinue) {
-    'Install-PSResource'
+# Chosen only when a module is actually missing, so an up-to-date host needs neither.
+function Get-TestDependencyInstaller {
+    if (Get-Command -Name Install-PSResource -ErrorAction SilentlyContinue) {
+        'Install-PSResource'
+    }
+    elseif ($PSVersionTable.PSEdition -eq 'Desktop' -and (Get-Command -Name Install-Module -ErrorAction SilentlyContinue)) {
+        'Install-Module'
+    }
+    else {
+        throw "Install-PSResource is not available in PowerShell $($PSVersionTable.PSVersion). Install the Microsoft.PowerShell.PSResourceGet module or upgrade to PowerShell 7.4 or later."
+    }
 }
-elseif ($PSVersionTable.PSEdition -eq 'Desktop' -and (Get-Command -Name Install-Module -ErrorAction SilentlyContinue)) {
-    'Install-Module'
-}
-else {
-    throw "Install-PSResource is not available in PowerShell $($PSVersionTable.PSVersion). Install the Microsoft.PowerShell.PSResourceGet module or upgrade to PowerShell 7.4 or later."
-}
+$TestDependencyInstaller = $null
 
 foreach ($module in @(
         @{ Name = 'Pester'; Version = $PesterVersion }
@@ -63,6 +67,9 @@ foreach ($module in @(
     if (Get-Module -ListAvailable -Name $module.Name | Where-Object Version -EQ $module.Version) {
         Write-Host "$($module.Name) $($module.Version) already installed"
         continue
+    }
+    if (-not $TestDependencyInstaller) {
+        $TestDependencyInstaller = Get-TestDependencyInstaller
     }
     Write-Host "Installing $($module.Name) $($module.Version) with $TestDependencyInstaller"
     if ($TestDependencyInstaller -eq 'Install-PSResource') {
