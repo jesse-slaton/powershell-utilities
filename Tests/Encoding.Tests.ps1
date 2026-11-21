@@ -9,6 +9,8 @@
 
 BeforeAll {
     $script:repoRoot = Split-Path -Parent $PSScriptRoot
+    # The per-file decision lives in Get-PowerShellEncodingProblem, unit-tested in TestHelpers.Tests.ps1.
+    Import-Module (Join-Path $PSScriptRoot 'TestHelpers.psm1') -Force
 
     # No silent skip: without git there is no tracked-file list, so the check cannot run.
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -32,34 +34,9 @@ Describe 'Tracked PowerShell files are UTF-8, not UTF-16' {
     }
 
     It 'has only valid UTF-8 text, with no UTF-16 byte order mark or control byte, in any tracked .ps1, .psm1 or .psd1' {
-        # Strict decoder: throws on invalid UTF-8 instead of substituting U+FFFD. New-Object, not
-        # ::new(), so the test also runs on Windows PowerShell 5.1.
-        $strictUtf8 = New-Object System.Text.UTF8Encoding -ArgumentList $false, $true
         $offenders = foreach ($relativePath in $script:trackedFiles) {
             $bytes = [System.IO.File]::ReadAllBytes((Join-Path $script:repoRoot $relativePath))
-            $reason = $null
-            if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { $reason = 'UTF-16LE byte order mark' }
-            elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) { $reason = 'UTF-16BE byte order mark' }
-            else {
-                $text = $null
-                try { $text = $strictUtf8.GetString($bytes) }
-                catch [System.Text.DecoderFallbackException] { $reason = 'not valid UTF-8 (UTF-16 without a byte order mark?)' }
-                # A byte below 0x20 is never part of a multi-byte UTF-8 sequence, so matching the
-                # decoded text finds every such byte. NUL is the usual sign of BOM-less UTF-16.
-                if ($null -ne $text -and $text -match '[\x00-\x08\x0B\x0E-\x1F]') {
-                    $reason = 'control character other than tab, LF, FF or CR (UTF-16 without a byte order mark?)'
-                }
-                # Windows PowerShell 5.1 reads a BOM-less file in the system code page, so non-ASCII
-                # UTF-8 text needs the BOM (EF BB BF). Pure ASCII reads the same either way.
-                elseif ($null -ne $text) {
-                    $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
-                    $start = 0
-                    if ($hasBom) { $start = 3 }
-                    $nonAscii = $false
-                    for ($i = $start; $i -lt $bytes.Length; $i++) { if ($bytes[$i] -gt 0x7F) { $nonAscii = $true; break } }
-                    if ($nonAscii -and -not $hasBom) { $reason = 'non-ASCII UTF-8 text without a byte order mark (Windows PowerShell 5.1 misreads it)' }
-                }
-            }
+            $reason = Get-PowerShellEncodingProblem -Bytes $bytes
             if ($reason) { "$relativePath ($reason)" }
         }
 
