@@ -9,6 +9,10 @@ Pester 5 suite. Running it never executes a script under test.
 Invoke-Pester ./Tests
 ```
 
+The installer uses `Install-PSResource` (PSResourceGet, built into PowerShell 7.4 and later). Windows
+PowerShell 5.1 without PSResourceGet falls back to `Install-Module`, and the output names which command
+ran. PowerShell 7.0 to 7.3 need the `Microsoft.PowerShell.PSResourceGet` module installed first.
+
 ### On macOS or Linux
 
 The suite runs under PowerShell 7 (`pwsh`) off Windows too. From the repository root:
