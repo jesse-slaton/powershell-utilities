@@ -1,9 +1,9 @@
 # Archived scripts
 
-Scripts removed from `main` because the product they depend on is no longer in use.
-They are kept in git history: restore one with
-`git show 38099f6cd88a:"<path>" > "<file>"`, or browse
-https://github.com/jesse-slaton/powershell-utilities/tree/38099f6cd88a.
+Scripts removed from `main` because the product they depend on is no longer in use,
+or because they cannot run as written. They are kept in git history: restore one with
+`git show <commit>:"<path>" > "<file>"`, using the last commit listed in its section, or browse
+`https://github.com/jesse-slaton/powershell-utilities/tree/<commit>`.
 
 Third-party code that was removed is listed with its upstream in
 [EXTERNAL_REPOS.txt](./EXTERNAL_REPOS.txt).
@@ -23,3 +23,12 @@ and the agent is no longer deployed. Last commit that has them: `38099f6cd88a`.
 | `Scripts/Network/RSoP-WiredLANPolicy.ps1` | Reports which wired (802.3) Group Policy objects apply to this computer to the Altiris Notification Server as custom inventory. |
 | `Scripts/System/Altiris-COMObjects.ps1` | Creates an instance of each Altiris agent COM class and stores it in a variable. |
 | `Scripts/System/Set-MIGPathOwner.ps1` | Makes the Altiris primary user the owner of C:\MIG and grants that user Full Control. |
+
+## Scripts with a missing dependency (#120, 2026-11)
+
+These scripts import a module that is not in this repository and never was, so they
+cannot run. Last commit that has them: `293649f0ab13`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/System/MainCleanupScript.ps1` | Ran recycle bin, temporary file, DISM and CCM cache cleanup as a timed background job. Every cleanup step lived in `CleanupFunctions.psm1`, which was never committed. |
