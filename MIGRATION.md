@@ -54,8 +54,8 @@ Retirement moves and ports happen in follow-up issues; no script is changed by t
 
 | Decision | Files |
 |---|---|
-| keep | 59 |
-| port | 2 |
+| keep | 60 |
+| port | 1 |
 | port via module issue | 25 |
 | retire | 53 |
 | retire via module issue | 6 |
@@ -135,7 +135,7 @@ Module issues: #44 ChromeProfile, #45 OfficeC2R, #46 SecurityPosture, #47 Storag
 | `Scripts/General/Test-MIAVC-Sensor.ps1` | PSSA: none. Registry .NET API only; operator string L249 matches no switch branch (L257), result always empty | retire | Sensor comparing installed AnyConnect version to a reference version. Obsolete product: hard-coded to Cisco AnyConnect 4.7 (L248-250), now renamed Secure Client, and the comparison is broken |
 | `Scripts/General/test-UIforPS7.ps1` | PSSA: none. Requires an Avalonia PowerShell module for ConvertTo-AvaloniaWindow (L36-40) | retire | Demo Avalonia window with a button that fills a text box. Broken/incomplete: throwaway demo with no function, depends on an unmaintained third-party Avalonia module |
 | `Scripts/General/Test-VPNConnection.ps1` | PSSA: none. Already CIM (L122, L125) | keep | Defines Test-VPNConnection, detects an active VPN adapter via CIM. CIM-only adapter checks, fine on 7.x |
-| `Scripts/Network/CheckDomainTrust.ps1` | Test-ComputerSecureChannel L27 removed in 7 (PSSA real hit), placeholder domain hard-coded L25 | port S | Tests domain secure channel when DC SRV records resolve. Replace Test-ComputerSecureChannel with nltest /sc_verify (or /sc_query) and parse the result, take the domain as a parameter |
+| `Scripts/Network/CheckDomainTrust.ps1` | none after the #133 port; PSSA: none | keep (ported in #133) | Tests domain secure channel when DC SRV records resolve. Uses nltest /sc_verify instead of Test-ComputerSecureChannel, defaults -DomainName to the joined domain, and stops with an error, rather than reporting True or False, when the check itself cannot run |
 | `Scripts/Network/Debloat Windows.ps1` | Appx/DISM cmdlets L96-L106 load only via WinPSCompat on 7 (PSSA real hit on Get/Remove-AppxProvisionedPackage L98, L106) | retire | Removes listed and non-allowlisted AppX packages for all users. Obsolete product - Windows 10 era sponsored-app list (Zune, Wunderlist, Twitter, Candy Crush) plus destructive allowlist purge |
 | `Scripts/Network/Disable Cortana.ps1` | none (registry provider only), PSSA: none | retire | Sets HKCU Cortana and input personalization values to disabled. Obsolete product - Cortana toggle, Cortana app is discontinued on current Windows |
 | `Scripts/Network/DisableNetBIOS.ps1` | none (already CIM, L20-L22), PSSA: none | keep | Disables NetBIOS over TCP/IP on every IP-enabled adapter. Get-CimInstance and Invoke-CimMethod run unchanged on 7 |
