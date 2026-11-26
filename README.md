@@ -117,7 +117,7 @@ Some scripts depend on external repositories. See `EXTERNAL_REPOS.txt` for:
 
 ## Contributing
 
-1. Use approved PowerShell verbs (`Get-Verb`) for new script and function names
+1. Follow the [PowerShell coding standard](./STANDARDS.md), including approved PowerShell verbs (`Get-Verb`) for new script and function names
 2. Write tests for all new scripts
 3. Add comment-based help that meets the standard below
 4. Run PSScriptAnalyzer before committing
@@ -152,6 +152,7 @@ Rules:
 
 ## Documentation
 
+- [STANDARDS.md](./STANDARDS.md) - The PowerShell coding standard: naming, output, errors, style and how each rule is checked
 - [EXTERNAL_REPOS.txt](./EXTERNAL_REPOS.txt) - Upstream sources for archived and vendored scripts
 - [ARCHIVED.md](./ARCHIVED.md) - First-party scripts removed from main, and where to find them in git history
 - Comment-based help in each script: `Get-Help <path-to-script> -Full` (see the standard above)
