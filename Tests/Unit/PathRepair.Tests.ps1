@@ -421,6 +421,12 @@ Describe 'Repair-PathEntry -ComputerName' {
             $ArgumentList[0] -eq $true -and $ArgumentList[2] -eq 'C:\Missing;C:\Good' -and $ArgumentList[3] -eq 'C:\Good'
         }
     }
+
+    It 'passes several -FixTypes to the remote computer as one argument' {
+        $null = Repair-PathEntry -ComputerName PC01 -FixTypes Duplicates, NonExistentPaths -Confirm:$false
+        Should -Invoke Invoke-Command -ModuleName PathRepair -Times 2 -Exactly -ParameterFilter {
+            $ArgumentList.Count -eq 4 -and @($ArgumentList[1]) -join ',' -eq 'Duplicates,NonExistentPaths'
+        }
         Should -Invoke Invoke-Command -ModuleName PathRepair -Times 1 -Exactly -ParameterFilter {
             $ArgumentList[0] -eq $true -and $ArgumentList[2] -eq 'C:\Missing;C:\Good' -and $ArgumentList[3] -eq 'C:\Good'
         }
