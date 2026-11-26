@@ -301,7 +301,8 @@ function Select-ApprovedPathChange {
 
     [pscustomobject]@{
         NewPath = $kept.ToArray() -join ';'
-        Changes = @($Plan.Changes | Where-Object { $approved.ContainsKey([int]$_.Index) })
+        # The approved changes as applied, so a fallback replacement is reported as written.
+        Changes = @($approved.Keys | Sort-Object | ForEach-Object { $approved[$_] })
     }
 }
 

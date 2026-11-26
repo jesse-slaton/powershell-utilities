@@ -435,11 +435,11 @@ Describe 'Select-ApprovedPathChange' {
     }
 
     It 'keeps the parts a declined span would have supplied when a later span repeats them: <Path>' -ForEach @(
-        @{ Path = '"C:\A;C:\B";"C:\A;C:\B"'; Answers = @($false, $true); NewPath = '"C:\A;C:\B";C:\A;C:\B'
+        @{ Path = '"C:\A;C:\B";"C:\A;C:\B"'; Answers = @($false, $true); NewPath = '"C:\A;C:\B";C:\A;C:\B'; Written = 'C:\A;C:\B'
             Second = "Replace entry '`"C:\A;C:\B`"' with 'C:\A;C:\B' (Quoted span holds several entries)" }
-        @{ Path = '"C:\A;C:\B";"C:\B;C:\C"'; Answers = @($false, $true); NewPath = '"C:\A;C:\B";C:\B;C:\C'
+        @{ Path = '"C:\A;C:\B";"C:\B;C:\C"'; Answers = @($false, $true); NewPath = '"C:\A;C:\B";C:\B;C:\C'; Written = 'C:\B;C:\C'
             Second = "Replace entry '`"C:\B;C:\C`"' with 'C:\B;C:\C' (Quoted span holds several entries)" }
-        @{ Path = '"C:\A;C:\B";"C:\B;C:\C"'; Answers = @($true, $true); NewPath = 'C:\A;C:\B;C:\C'
+        @{ Path = '"C:\A;C:\B";"C:\B;C:\C"'; Answers = @($true, $true); NewPath = 'C:\A;C:\B;C:\C'; Written = 'C:\A;C:\B|C:\C'
             Second = "Replace entry '`"C:\B;C:\C`"' with 'C:\C' (Quoted span holds several entries, duplicates dropped)" }
     ) {
         $fake = New-FakeCmdlet -Answers $Answers
@@ -452,7 +452,8 @@ Describe 'Select-ApprovedPathChange' {
         }
         $fake.Calls.Count | Should -Be 2
         $fake.Calls[1] | Should -BeExactly "User PATH|$Second"
-        $result.NewPath | Should -BeExactly $NewPath
+        $result.NewPath | Should -BeExactly $NewPath        # The reported changes are the ones written, fallback included.
+        @($result.Changes | ForEach-Object { if ($null -eq $_.NewEntry) { '-' } else { $_.NewEntry } }) -join '|' | Should -BeExactly $Written
     }
 
     It 'decides two entries with the same text separately' {
