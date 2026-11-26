@@ -54,8 +54,8 @@ Retirement moves and ports happen in follow-up issues; no script is changed by t
 
 | Decision | Files |
 |---|---|
-| keep | 60 |
-| port | 1 |
+| keep | 61 |
+| port | 0 |
 | port via module issue | 25 |
 | retire | 53 |
 | retire via module issue | 6 |
@@ -151,7 +151,7 @@ Module issues: #44 ChromeProfile, #45 OfficeC2R, #46 SecurityPosture, #47 Storag
 | `Scripts/Network/Get-CrestronAPIData.ps1` | none, PSSA: none, Sleep alias L42 exists on Windows 7.x | keep | Reads Crestron XiO Cloud account, device, group and status data. Invoke-RestMethod with a header dictionary runs unchanged on 7 |
 | `Scripts/Network/Get-ScopeDetails-Sensor.ps1` | DhcpServer module (loads via WinPSCompat on 7 at worst), hard-coded internal DHCP server IP excluded L31, all output commented out L58-L64 | retire | Collects active DHCP scopes and option 1 values. Broken/incomplete - writes nothing to the pipeline despite the -Sensor name, plus a hard-coded internal server exclusion |
 | `Scripts/Network/GetGeoIP-Sensor.ps1` | none, PSSA: none | keep (bugs fixed in #147) | Defines Get-GeoIP lookup against the ip-api.com service. Invoke-RestMethod and Write-Progress run unchanged on 7 |
-| `Scripts/Network/GetLocation.ps1` | Add-Type -AssemblyName System.Device L29 and GeoCoordinateWatcher L30 are .NET Framework only, not in .NET on 7 | port M | Reports street address, coordinates and public IP of the device. Replace System.Device.Location with the Windows location API (WinRT Geolocator via a small Add-Type), failing loudly when location is unavailable; rest is Invoke-RestMethod |
+| `Scripts/Network/GetLocation.ps1` | none after the #133 port; PSSA: none | keep (ported in #133) | Reports street address, coordinates and public IP of the device. Uses the Windows Runtime Geolocator through a small Add-Type helper instead of System.Device, and stops with an error that says why when location is off, denied or times out; the rest is Invoke-RestMethod |
 | `Scripts/Network/GetNETFrameworkVersionScript-Package.ps1` | none for 7.x, PSSA: none, -UseBasicParsing L39 is a harmless no-op on 7, source URL pins the master branch L38 and may be stale | keep | Generates a script listing installed .NET Framework versions. Invoke-WebRequest content splitting and registry reads run unchanged on 7 |
 | `Scripts/Network/GetTZConfiguration.ps1` | none, PSSA: none | keep | Reports time zone auto-update and NTP settings as one line. Microsoft.Win32.RegistryKey and Get-Service run unchanged on 7 Windows |
 | `Scripts/Network/GetWindowsTimeSettings-Package.ps1` | none, PSSA: none, Split(',') L70 single-char so .NET Core overload behaves the same | keep | Reports NTP server, poll interval and w32time status as one line. Registry provider, New-TimeSpan and Get-Service run unchanged on 7 |
