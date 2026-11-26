@@ -42,3 +42,13 @@ rather than ported. Last commit that has them: `741cebd003d0`.
 | Path | What it did | Use instead |
 |---|---|---|
 | `Scripts/Office/GetOffice365Channel-Package.ps1` | Output the Office Click-to-Run update channel name from CDNBaseUrl, relaunching itself in 64-bit Windows PowerShell when started from 32-bit PowerShell. | `Get-OfficeC2RChannel`, which reads the 64-bit registry view directly and also knows DevMain Channel. |
+
+## Retired with the SecurityPosture module (#46, 2026-11)
+
+These scripts were not ported to `Modules/SecurityPosture`: one did nothing, the other
+wrapped a program that is not in this repository. Last commit that has them: `b57268c28050`.
+
+| Path | What it did | Use instead |
+|---|---|---|
+| `Scripts/Security/GetBitlockerProtectionStatus.ps1` | Ran an in-house BitlockerProtection.exe (not in this repository) from the current directory and appended its output, with a timestamp, to BitlockerStatus.csv. | `Get-BitLockerVolumeStatus` in `Modules/SecurityPosture`, which reads BitLocker volume state through CIM. |
+| `Scripts/Security/TestDeviceGuardStatus.ps1` | Read Win32_DeviceGuard and defined lookup tables, but wrote no output. | `Get-DeviceGuardStatus` and `Get-DeviceGuardSecurityProperty` in `Modules/SecurityPosture`. |
