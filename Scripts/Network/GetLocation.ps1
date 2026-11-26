@@ -183,7 +183,8 @@ namespace PsuGeolocation
                 Check(Slot<GetPositionMethod>(locator, GeolocatorGetPositionWithAgeAndTimeout)(locator, maximumAge, timeout, out operation), "GetGeopositionAsync");
 
                 info = QueryInterface(operation, IidAsyncInfo, "QueryInterface(IAsyncInfo)");
-                DateTime deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds + 5);
+                // The WinRT timeout and this deadline are the same, so -TimeoutSeconds bounds the wait.
+                DateTime deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
                 int status;
                 while (true)
                 {

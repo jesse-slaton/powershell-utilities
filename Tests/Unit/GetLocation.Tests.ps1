@@ -21,6 +21,14 @@ Describe 'GetLocation.ps1' {
         @($Tokens | Where-Object { $_.Kind -ne 'Comment' -and $_.Text -match 'System\.Device\b|GeoCoordinateWatcher' }) | Should -BeNullOrEmpty
     }
 
+    # The helper polls the async operation itself, so its deadline must not outlast the
+    # WinRT timeout it passes; a longer one would let a caller wait past -TimeoutSeconds.
+    It 'waits for a position no longer than -TimeoutSeconds' {
+        $Source = Get-Content -LiteralPath $script:ScriptPath -Raw
+        $Source | Should -Match 'DateTime deadline = DateTime\.UtcNow\.AddSeconds\(timeoutSeconds\);'
+        $Source | Should -Not -Match 'AddSeconds\(timeoutSeconds\s*\+'
+    }
+
     It 'starts no other PowerShell' {
         $Ast = [System.Management.Automation.Language.Parser]::ParseFile($script:ScriptPath, [ref]$null, [ref]$null)
         $Commands = @($Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() })
