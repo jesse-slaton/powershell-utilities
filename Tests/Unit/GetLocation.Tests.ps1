@@ -71,6 +71,41 @@ Describe 'Initialize-GeolocatorInterop' {
         $Status | Should -BeLessOrEqual 5
     }
 
+    # Windows PowerShell 5.1 and the ISE run scripts on STA threads, where RoInitialize(MTA)
+    # returns RPC_E_CHANGED_MODE because the thread is already initialized for COM. The helper
+    # ignores that result, so the Geolocator must still work there: this runs the same read
+    # on a thread that is STA on purpose, on Windows PowerShell 5.1 and PowerShell 7 alike.
+    It 'reads a PositionStatus (0-5) from the real Geolocator on an STA thread' -Skip:(-not $script:OnWindows) {
+        Initialize-GeolocatorInterop
+        $Runspace = [runspacefactory]::CreateRunspace()
+        $Runspace.ApartmentState = [System.Threading.ApartmentState]::STA
+        $Runspace.ThreadOptions = [System.Management.Automation.Runspaces.PSThreadOptions]::ReuseThread
+        $Runspace.Open()
+        $Shell = [powershell]::Create()
+        try {
+            $Shell.Runspace = $Runspace
+            $null = $Shell.AddScript({
+                param($Type)
+                $Apartment = [System.Threading.Thread]::CurrentThread.GetApartmentState().ToString()
+                try { @{ Apartment = $Apartment; Status = $Type::GetLocationStatus() } }
+                catch { @{ Apartment = $Apartment; Error = "$($_.Exception.InnerException.Message)" } }
+            }.ToString()).AddArgument(('PsuGeolocation.WinRtGeolocator' -as [type]))
+            $Result = @($Shell.Invoke())[0]
+        }
+        finally {
+            $Shell.Dispose()
+            $Runspace.Dispose()
+        }
+        if ("$($Result.Error)" -match '0x80040154') {
+            Set-ItResult -Skipped -Because 'the Geolocator class is not registered on this Windows edition (REGDB_E_CLASSNOTREG)'
+            return
+        }
+        $Result.Apartment | Should -Be 'STA'
+        $Result.Error | Should -BeNullOrEmpty
+        $Result.Status | Should -BeGreaterOrEqual 0
+        $Result.Status | Should -BeLessOrEqual 5
+    }
+
     It 'is safe to call again once the type exists' {
         { Initialize-GeolocatorInterop; Initialize-GeolocatorInterop } | Should -Not -Throw
     }
