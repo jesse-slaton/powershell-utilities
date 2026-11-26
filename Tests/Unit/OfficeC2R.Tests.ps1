@@ -27,6 +27,25 @@ Describe 'Get-OfficeC2RConfigurationValue' {
         }
     }
 
+    # The module's promise is the 64-bit view even from a 32-bit host, where the default
+    # view is redirected to WOW6432Node. That cannot be exercised off a 32-bit Windows host,
+    # so this checks the code: every OpenBaseKey call in the module passes Registry64, and
+    # the helper does not read through the registry provider, which follows the host's view.
+    It 'opens HKLM through the 64-bit registry view so a 32-bit host is not redirected' {
+        $moduleRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'Modules/OfficeC2R'
+        $calls = @(Get-ChildItem -LiteralPath $moduleRoot -Recurse -File -Include '*.ps1', '*.psm1' | ForEach-Object {
+                $fileAst = [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$null)
+                $fileAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Value -eq 'OpenBaseKey' }, $true)
+            })
+        $calls.Count | Should -BeGreaterThan 0
+        foreach ($call in $calls) {
+            $call.Arguments.Count | Should -Be 2
+            $call.Arguments[1].Extent.Text | Should -Be '[Microsoft.Win32.RegistryView]::Registry64'
+        }
+        $helperAst = (& (Get-Module OfficeC2R) { Get-Command -Name Get-OfficeC2RConfigurationValue }).ScriptBlock.Ast
+        @($helperAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -match '^Get-Item(Property)?$|^Get-ChildItem$' }, $true)) | Should -BeNullOrEmpty
+    }
+
     # An access-denied OpenSubKey throws inside the helper's try/finally. Without Stop that
     # .NET exception is only statement-terminating and never reaches the caller's catch, so
     # the caller reports "not installed". That cannot be reproduced off Windows (the registry
