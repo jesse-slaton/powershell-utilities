@@ -29,6 +29,8 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
     # A path such as .\Helper.psm1 resolves against the caller's current directory, not the
     # script's folder, so the script breaks when run from anywhere else (#120). Anchor such
     # paths to $PSScriptRoot (Join-Path $PSScriptRoot 'Helper.psm1') or import by module name.
+    # Import-Module is also checked by argument, so an extensionless module path (.\Helper,
+    # ..\Mods\Helper, lib\Helper) is caught directly, through a variable, or through a splat.
     # Scripts are parsed, never run. Comments (including help examples) are not in the AST.
     # Manifests (.psd1) are not scanned: their RootModule, NestedModules and ScriptsToProcess
     # paths resolve against the manifest's folder. 'using module .\x.psm1' is skipped for the
@@ -93,6 +95,140 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             return $null
         }
 
+        $script:importCommands = @('Import-Module', 'ipmo')
+        # Import-Module switches (5.1 and 7); every other Import-Module parameter takes a value.
+        $script:importSwitches = @('Global', 'Force', 'SkipEditionCheck', 'PassThru', 'AsCustomObject', 'DisableNameChecking', 'NoClobber', 'UseWindowsPowerShell', 'Verbose', 'Debug')
+
+        function Test-ParameterPrefix {
+            # True when $Name is a prefix of $Full (PowerShell accepts unambiguous parameter prefixes).
+            param([string]$Full, [string]$Name)
+            return ($Name.Length -gt 0 -and $Full.StartsWith($Name, [System.StringComparison]::OrdinalIgnoreCase))
+        }
+
+        function Test-RelativeModulePath {
+            # True when a module name resolves against the current directory: .\x, ..\x, ./x, '.',
+            # or any unrooted name with a path separator (lib\x). Bare names such as Pester or
+            # Microsoft.PowerShell.Utility are looked up on PSModulePath and are not paths.
+            param([string]$Value)
+            if ($Value -match '^\.{1,2}([\\/]|$)') { return $true }
+            if ($Value -notmatch '[\\/]') { return $false }
+            return ($Value -notmatch '^([A-Za-z]:|[\\/]|~)')
+        }
+
+        function Get-AssignedValue {
+            # Returns the right-hand side of every assignment to $Name anywhere in the file.
+            # Scope-unaware on purpose: any relative value ever assigned is suspect.
+            param([System.Management.Automation.Language.Ast]$Ast, [string]$Name)
+            $Ast.FindAll({
+                    param($node)
+                    if ($node -isnot [System.Management.Automation.Language.AssignmentStatementAst]) { return $false }
+                    $target = $node.Left.Find({ param($v) $v -is [System.Management.Automation.Language.VariableExpressionAst] }, $true)
+                    $null -ne $target -and $target.VariablePath.UserPath -eq $Name
+                }, $true) | ForEach-Object { $_.Right }
+        }
+
+        function Test-RelativeModuleElement {
+            # True when an AST element given to Import-Module as a module name or specification
+            # resolves against the current directory. Follows lists, parentheses, Join-Path,
+            # ModuleSpecification hashtables, and variables assigned in the same file.
+            param($Element, [System.Management.Automation.Language.Ast]$Ast, [int]$Depth = 0)
+            if ($null -eq $Element -or $Depth -gt 8) { return $false }
+            $next = $Depth + 1
+            if ($Element -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+                return (Test-RelativeModulePath -Value $Element.Value)
+            }
+            if ($Element -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) {
+                # "$PSScriptRoot\x" or "$env:X\x" depend on a variable; only a leading .\ is known relative.
+                if (Test-AnchoredElement -Element $Element) { return $false }
+                return ($Element.Value -match '^\.{1,2}([\\/]|$)')
+            }
+            if ($Element -is [System.Management.Automation.Language.VariableExpressionAst]) {
+                foreach ($value in @(Get-AssignedValue -Ast $Ast -Name $Element.VariablePath.UserPath)) {
+                    if (Test-RelativeModuleElement -Element $value -Ast $Ast -Depth $next) { return $true }
+                }
+                return $false
+            }
+            if ($Element -is [System.Management.Automation.Language.HashtableAst]) {
+                # A ModuleSpecification: @{ ModuleName = '.\x'; ModuleVersion = '1.0' }.
+                foreach ($pair in $Element.KeyValuePairs) {
+                    if ($pair.Item1.Value -eq 'ModuleName' -and (Test-RelativeModuleElement -Element $pair.Item2 -Ast $Ast -Depth $next)) { return $true }
+                }
+                return $false
+            }
+            if ($Element -is [System.Management.Automation.Language.CommandAst]) {
+                if ($Element.GetCommandName() -ne 'Join-Path') { return $false }
+                $parentPath = Get-JoinPathParentElement -Command $Element
+                return ($null -ne $parentPath -and -not (Test-AnchoredElement -Element $parentPath) -and (Test-CurrentDirectoryElement -Element $parentPath))
+            }
+            $children = @()
+            if ($Element -is [System.Management.Automation.Language.ArrayLiteralAst]) { $children = $Element.Elements }
+            elseif ($Element -is [System.Management.Automation.Language.ArrayExpressionAst]) { $children = $Element.SubExpression.Statements }
+            elseif ($Element -is [System.Management.Automation.Language.ParenExpressionAst]) { $children = @($Element.Pipeline) }
+            elseif ($Element -is [System.Management.Automation.Language.CommandExpressionAst]) { $children = @($Element.Expression) }
+            elseif ($Element -is [System.Management.Automation.Language.ConvertExpressionAst]) { $children = @($Element.Child) }
+            elseif ($Element -is [System.Management.Automation.Language.PipelineAst] -and $Element.PipelineElements.Count -eq 1) { $children = $Element.PipelineElements }
+            foreach ($child in $children) {
+                if (Test-RelativeModuleElement -Element $child -Ast $Ast -Depth $next) { return $true }
+            }
+            return $false
+        }
+
+        function Test-RelativeImportCommand {
+            # True when an Import-Module call loads a module by a working-directory-relative path,
+            # through -Name, -FullyQualifiedName, the first positional argument, a splatted
+            # hashtable or array, or pipeline input. Other parameters (-Prefix, ...) are ignored.
+            param([System.Management.Automation.Language.CommandAst]$Command, [System.Management.Automation.Language.Ast]$Ast)
+            $elements = $Command.CommandElements
+            $positionalSeen = $false
+            $i = 1
+            while ($i -lt $elements.Count) {
+                $element = $elements[$i]
+                if ($element -is [System.Management.Automation.Language.CommandParameterAst]) {
+                    $name = $element.ParameterName
+                    $isModule = (Test-ParameterPrefix -Full 'Name' -Name $name) -or (Test-ParameterPrefix -Full 'FullyQualifiedName' -Name $name)
+                    if ($null -ne $element.Argument) {
+                        if ($isModule -and (Test-RelativeModuleElement -Element $element.Argument -Ast $Ast)) { return $true }
+                        $i++
+                        continue
+                    }
+                    if ($isModule) {
+                        if ($i + 1 -lt $elements.Count -and (Test-RelativeModuleElement -Element $elements[$i + 1] -Ast $Ast)) { return $true }
+                        $i += 2
+                        continue
+                    }
+                    $isSwitch = @($script:importSwitches | Where-Object { Test-ParameterPrefix -Full $_ -Name $name }).Count -gt 0
+                    if ($isSwitch) { $i++ } else { $i += 2 }
+                    continue
+                }
+                if ($element -is [System.Management.Automation.Language.VariableExpressionAst] -and $element.Splatted) {
+                    foreach ($value in @(Get-AssignedValue -Ast $Ast -Name $element.VariablePath.UserPath)) {
+                        $splat = $value.Find({ param($n) $n -is [System.Management.Automation.Language.HashtableAst] -or $n -is [System.Management.Automation.Language.ArrayExpressionAst] -or $n -is [System.Management.Automation.Language.ArrayLiteralAst] }, $true)
+                        if ($splat -is [System.Management.Automation.Language.HashtableAst]) {
+                            foreach ($pair in $splat.KeyValuePairs) {
+                                $key = [string]$pair.Item1.Value
+                                if (((Test-ParameterPrefix -Full 'Name' -Name $key) -or (Test-ParameterPrefix -Full 'FullyQualifiedName' -Name $key)) -and
+                                    (Test-RelativeModuleElement -Element $pair.Item2 -Ast $Ast)) { return $true }
+                            }
+                        } elseif ($null -ne $splat -and (Test-RelativeModuleElement -Element $splat -Ast $Ast)) { return $true }
+                    }
+                    $i++
+                    continue
+                }
+                if (-not $positionalSeen) {
+                    $positionalSeen = $true
+                    if (Test-RelativeModuleElement -Element $element -Ast $Ast) { return $true }
+                }
+                $i++
+            }
+            # '.\x' | Import-Module: the module name arrives as pipeline input.
+            $pipeline = $Command.Parent
+            if ($pipeline -is [System.Management.Automation.Language.PipelineAst]) {
+                $index = $pipeline.PipelineElements.IndexOf($Command)
+                if ($index -gt 0 -and (Test-RelativeModuleElement -Element $pipeline.PipelineElements[$index - 1] -Ast $Ast)) { return $true }
+            }
+            return $false
+        }
+
         function Get-RelativeImportOffender {
             # Lists 'file:line: text' for every working-directory-relative script path under
             # <Root>/Scripts and <Root>/Modules, and 'file: parse error ...' for unparsable files.
@@ -146,13 +282,24 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
                     if (@($children | Where-Object { $_.Value -match '\.ps[dm]?1$' }).Count -eq 0) { continue }
                     '{0}:{1}: {2}' -f $relative, $join.Extent.StartLineNumber, $join.Extent.Text
                 }
+                # Import-Module .\Helper, -Name ..\Mods\Helper, a variable or splat: a module
+                # folder or name has no extension, so the string checks above miss it.
+                $imports = $ast.FindAll({
+                        param($node)
+                        $node -is [System.Management.Automation.Language.CommandAst] -and $script:importCommands -contains $node.GetCommandName()
+                    }, $true)
+                foreach ($import in $imports) {
+                    if (Test-RelativeImportCommand -Command $import -Ast $ast) {
+                        '{0}:{1}: {2}' -f $relative, $import.Extent.StartLineNumber, $import.Extent.Text
+                    }
+                }
             }
         }
     }
 
-    It 'no string in code under Scripts/ or Modules/ is a .\ or ./ path to a .ps1, .psm1 or .psd1 file' {
+    It 'no code under Scripts/ or Modules/ loads a script or module from a .\ or ./ path' {
         $repoRoot = Split-Path -Parent $PSScriptRoot
-        $offenders = @(Get-RelativeImportOffender -Root $repoRoot)
+        $offenders = @(Get-RelativeImportOffender -Root $repoRoot | Select-Object -Unique)
         $offenders | Should -BeNullOrEmpty -Because ('these load a file relative to the current directory, or do not parse; anchor them to $PSScriptRoot: ' + ($offenders -join '; '))
     }
 
@@ -167,6 +314,19 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = 'Join-Path from $PWD with a bare child'; Code = 'Import-Module (Join-Path $PWD ''Helper.psm1'')' }
             @{ Name = 'Join-Path from Get-Location'; Code = '. (Join-Path (Get-Location) ''Helper.ps1'')' }
             @{ Name = 'a file that does not parse'; Code = "function Broken {`n    if (" }
+            @{ Name = 'a -Name import with an extension'; Code = 'Import-Module -Name .\Helper.psm1' }
+            @{ Name = 'an extensionless positional import'; Code = 'Import-Module .\Helper' }
+            @{ Name = 'an extensionless -Name import'; Code = 'Import-Module -Name .\Helper' }
+            @{ Name = 'a -Name import after a switch'; Code = 'Import-Module -Force -Name ./Helper' }
+            @{ Name = 'a parent-folder module import'; Code = 'Import-Module ..\Mods\Helper' }
+            @{ Name = 'a relative path with no leading dot'; Code = 'Import-Module lib\Helper' }
+            @{ Name = 'a relative path in a name list'; Code = 'Import-Module Pester, .\Helper' }
+            @{ Name = 'the ipmo alias'; Code = 'ipmo .\Helper' }
+            @{ Name = 'a relative path held in a variable'; Code = "`$helper = '.\Helper'`nImport-Module `$helper" }
+            @{ Name = 'a relative path in a splatted hashtable'; Code = "`$importArgs = @{ Name = '.\Helper'; Force = `$true }`nImport-Module @importArgs" }
+            @{ Name = 'a relative -FullyQualifiedName ModuleName'; Code = 'Import-Module -FullyQualifiedName @{ ModuleName = ''.\Helper''; ModuleVersion = ''1.0'' }' }
+            @{ Name = 'a relative path piped to Import-Module'; Code = '''.\Helper'' | Import-Module' }
+            @{ Name = 'an extensionless Join-Path from $PWD'; Code = 'Import-Module (Join-Path $PWD ''Helper'')' }
         ) {
             param($Name, $Code)
             $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
@@ -182,6 +342,15 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = 'an interpolated $PSScriptRoot path'; Code = 'Import-Module "$PSScriptRoot\Helper.psm1"' }
             @{ Name = 'using module with a relative path'; Code = 'using module .\Helper.psm1' }
             @{ Name = 'an import by module name'; Code = 'Import-Module Helper' }
+            @{ Name = 'Import-Module Pester'; Code = 'Import-Module Pester' }
+            @{ Name = 'Import-Module MsiTools -Force'; Code = 'Import-Module MsiTools -Force' }
+            @{ Name = 'a dotted module name'; Code = 'Import-Module -Name Microsoft.PowerShell.Utility' }
+            @{ Name = 'an extensionless Join-Path $PSScriptRoot import'; Code = 'Import-Module (Join-Path $PSScriptRoot ''Helper'')' }
+            @{ Name = 'an extensionless interpolated $PSScriptRoot import'; Code = 'Import-Module "$PSScriptRoot\Helper"' }
+            @{ Name = 'an absolute module path'; Code = 'Import-Module -Name ''C:\Modules\Helper''' }
+            @{ Name = 'Get-Module -ListAvailable on a relative path'; Code = 'Get-Module -ListAvailable -Name .\Helper' }
+            @{ Name = 'a relative variable that is never imported'; Code = "`$helper = '.\Helper'`nGet-Item `$helper`nImport-Module Pester" }
+            @{ Name = 'a relative -Prefix value'; Code = 'Import-Module -Prefix ./X -Name Pester' }
         ) {
             param($Name, $Code)
             $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
