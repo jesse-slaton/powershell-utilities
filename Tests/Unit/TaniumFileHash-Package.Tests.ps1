@@ -128,6 +128,13 @@ Describe 'TaniumFileHash-Package.ps1' {
         $Exit[0].Pipeline.Extent.Text | Should -Be '1'
     }
 
+    It 'declares Get-TaniumFileHash as an advanced function, so -ErrorVariable binds' {
+        $Function = @($script:Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-TaniumFileHash' }, $true))
+        $Function.Count | Should -Be 1
+        $Binding = @($Function[0].Body.ParamBlock.Attributes | Where-Object { $_.TypeName.Name -eq 'CmdletBinding' })
+        $Binding.Count | Should -Be 1 -Because 'the top-level exit code depends on -ErrorVariable, a common parameter'
+    }
+
     It 'does not load System.Web' {
         $script:Ast.Extent.Text | Should -Not -Match 'LoadWithPartialName|System\.Web'
     }

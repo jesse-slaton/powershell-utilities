@@ -106,6 +106,7 @@ function Get-TaniumFileHash {
     .PARAMETER HashType
         Get-FileHash algorithm, such as SHA256.
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [string]$EncodedPath,
