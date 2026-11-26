@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 # Behavior tests for Modules/ChromeProfile. The module is imported (it only defines functions).
-# Every file effect stays in $TestDrive: the default-location helpers are mocked, and the real
-# Compress-Archive / Expand-Archive run on files there, so these run on any OS.
+# Every file effect stays in $TestDrive: the default-location helpers are mocked, and the
+# real zip code (System.IO.Compression) runs on files there, so these run on any OS.
 
 BeforeAll {
     $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -11,8 +11,8 @@ BeforeAll {
     $script:nonAsciiName = 'na' + [char]0x00EF + 've-' + [char]0x00FC + '.txt'
     $script:binaryBytes = [byte[]](0..255)
 
-    # A profile with what Compress-Archive / Expand-Archive treat differently between 5.1 and 7:
-    # a name with spaces and non-ASCII characters, an empty folder, multi-level nesting, binary data.
+    # A profile with what zip handling can get wrong: a name with spaces and non-ASCII characters,
+    # an empty folder, multi-level nesting, binary data.
     function Initialize-FakeChromeProfile {
         param([string]$Path, [string]$Bookmarks = '{"roots":{}}')
         $null = New-Item -ItemType Directory -Path (Join-Path $Path 'Extensions') -Force
@@ -20,7 +20,7 @@ BeforeAll {
         Set-Content -LiteralPath (Join-Path $Path 'Extensions/marker.txt') -Value 'nested'
         $subDir = New-Item -ItemType Directory -Path (Join-Path $Path 'Sub Dir') -Force
         [System.IO.File]::WriteAllText((Join-Path $subDir.FullName $script:nonAsciiName), 'unicode')
-        # Nested: Compress-Archive drops an empty folder at the top of a wildcard source (see the help).
+        # Nested empty folder.
         $null = New-Item -ItemType Directory -Path (Join-Path $Path 'Sub Dir/Empty Folder') -Force
         $deep = New-Item -ItemType Directory -Path (Join-Path $Path 'Level1/Level2/Level3') -Force
         Set-Content -LiteralPath (Join-Path $deep.FullName 'deep.txt') -Value 'deep'
@@ -35,6 +35,36 @@ BeforeAll {
         Get-Content -LiteralPath (Join-Path $Path 'Level1/Level2/Level3/deep.txt') | Should -Be 'deep'
         $bytes = [System.IO.File]::ReadAllBytes((Join-Path $Path 'Cache.bin'))
         [System.Convert]::ToBase64String($bytes) | Should -Be ([System.Convert]::ToBase64String($script:binaryBytes))
+    }
+
+    # Hidden content: a dot-name is the hidden analogue on macOS/Linux; on Windows the Hidden
+    # attribute is set too (Compress-Archive skipped those).
+    function Add-HiddenProfileContent {
+        param([string]$Path)
+        $hiddenFile = Join-Path $Path '.hidden-file'
+        Set-Content -LiteralPath $hiddenFile -Value 'hidden'
+        $hiddenDir = New-Item -ItemType Directory -Path (Join-Path $Path '.hidden-dir/inner') -Force
+        Set-Content -LiteralPath (Join-Path $hiddenDir.FullName 'in-hidden.txt') -Value 'in hidden'
+        $null = New-Item -ItemType Directory -Path (Join-Path $Path 'Level1/Empty Deep/Empty Deeper') -Force
+        $null = New-Item -ItemType Directory -Path (Join-Path $Path 'Empty Top') -Force
+        if ($env:OS -eq 'Windows_NT') {
+            $visibleHidden = Join-Path $Path 'Level1/attr-hidden.txt'
+            Set-Content -LiteralPath $visibleHidden -Value 'attr'
+            (Get-Item -LiteralPath $visibleHidden -Force).Attributes = 'Hidden'
+            (Get-Item -LiteralPath (Join-Path $Path '.hidden-file') -Force).Attributes = 'Hidden'
+            (Get-Item -LiteralPath (Join-Path $Path '.hidden-dir') -Force).Attributes = 'Hidden, Directory'
+        }
+    }
+
+    function Assert-HiddenProfileContent {
+        param([string]$Path)
+        Get-Content -LiteralPath (Join-Path $Path '.hidden-file') | Should -Be 'hidden'
+        Get-Content -LiteralPath (Join-Path $Path '.hidden-dir/inner/in-hidden.txt') | Should -Be 'in hidden'
+        Test-Path -LiteralPath (Join-Path $Path 'Level1/Empty Deep/Empty Deeper') -PathType Container | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $Path 'Empty Top') -PathType Container | Should -BeTrue -Because 'an empty folder directly in the profile must survive'
+        if ($env:OS -eq 'Windows_NT') {
+            Get-Content -LiteralPath (Join-Path $Path 'Level1/attr-hidden.txt') | Should -Be 'attr'
+        }
     }
 
     # A zip in the layout the old ChromeProfileBackup.ps1 wrote: every entry under ChromeProfileBackup.
@@ -92,6 +122,48 @@ Describe 'Backup-ChromeProfile' {
         $result.FullName | Should -Be (Get-Item -LiteralPath $literalZip).FullName
         Test-Path -LiteralPath (Join-Path $bracketed 'ChromeProfileBackup.partial.zip') | Should -BeFalse
         @(Get-ChildItem -LiteralPath $decoy -Force) | Should -BeNullOrEmpty -Because 'the look-alike folder must stay untouched'
+    }
+
+    It 'includes hidden files and folders and empty folders at any depth in the zip' {
+        Add-HiddenProfileContent -Path $chromeProfile
+
+        $result = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorAction Stop
+
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($result.FullName)
+        try { $names = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') }) } finally { $archive.Dispose() }
+        $names | Should -Contain '.hidden-file'
+        $names | Should -Contain '.hidden-dir/inner/in-hidden.txt'
+        $names | Should -Contain 'Empty Top/'
+        $names | Should -Contain 'Level1/Empty Deep/Empty Deeper/'
+        if ($env:OS -eq 'Windows_NT') { $names | Should -Contain 'Level1/attr-hidden.txt' }
+    }
+
+    It 'backs up a bracketed profile into a bracketed destination, never touching look-alike folders' {
+        $bracketedProfile = Join-Path $root 'User Data/Profile [1]'
+        Initialize-FakeChromeProfile -Path $bracketedProfile -Bookmarks 'bracketed'
+        $decoyProfile = Join-Path $root 'User Data/Profile 1'
+        Initialize-FakeChromeProfile -Path $decoyProfile -Bookmarks 'decoy'
+        $decoyBackup = Join-Path $root 'Backup 1'
+        $null = New-Item -ItemType Directory -Path $decoyBackup -Force
+        $bracketedBackup = Join-Path $root 'Backup [1]'
+
+        $result = Backup-ChromeProfile -Destination $bracketedBackup -ProfilePath $bracketedProfile -ErrorAction Stop
+
+        $out = Join-Path $root 'expanded'
+        Expand-Archive -LiteralPath $result.FullName -DestinationPath $out
+        Get-Content -LiteralPath (Join-Path $out 'Bookmarks') | Should -Be 'bracketed'
+        @(Get-ChildItem -LiteralPath $decoyBackup -Force) | Should -BeNullOrEmpty
+    }
+
+    It 'resolves relative -Destination and -ProfilePath against the PowerShell location, not the process directory' {
+        Push-Location $root
+        try {
+            $result = Backup-ChromeProfile -Destination 'rel-backup' -ProfilePath 'User Data/Default' -ErrorAction Stop
+        }
+        finally { Pop-Location }
+
+        $result.FullName | Should -Be (Join-Path (Get-Item -LiteralPath $root).FullName 'rel-backup/ChromeProfileBackup.zip')
     }
 
     It 'refuses a folder whose only top-level item is a ChromeProfileBackup folder, which Restore-ChromeProfile would read as the old layout' {
@@ -166,8 +238,8 @@ Describe 'Backup-ChromeProfile' {
     It 'keeps the previous backup zip and removes the partial one when a backup fails' {
         $first = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile
         $before = (Get-FileHash -LiteralPath $first.FullName).Hash
-        Mock Compress-Archive -ModuleName ChromeProfile {
-            Set-Content -LiteralPath $DestinationPath -Value 'partial'
+        Mock New-ChromeBackupZip -ModuleName ChromeProfile {
+            Set-Content -LiteralPath $ZipPath -Value 'partial'
             throw 'file locked'
         }
 
@@ -180,12 +252,68 @@ Describe 'Backup-ChromeProfile' {
     }
 
     It 'writes an error and outputs nothing when the zip cannot be written' {
-        Mock Compress-Archive -ModuleName ChromeProfile { throw 'disk full' }
+        Mock New-ChromeBackupZip -ModuleName ChromeProfile { throw 'disk full' }
 
         $result = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
 
         $result | Should -BeNullOrEmpty
         "$err" | Should -BeLike '*Error backing up Chrome profile*disk full*'
+    }
+
+    It 'refuses an empty profile folder, keeping the previous backup zip unchanged' {
+        $first = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorAction Stop
+        $before = (Get-FileHash -LiteralPath $first.FullName).Hash
+        Get-ChildItem -LiteralPath $chromeProfile -Force | Remove-Item -Recurse -Force
+
+        $result = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*holds no files*'
+        (Get-FileHash -LiteralPath (Join-Path $backup 'ChromeProfileBackup.zip')).Hash | Should -Be $before -Because 'an emptied profile must not replace the last good backup'
+        @(Get-ChildItem -LiteralPath $backup).Name | Should -Be @('ChromeProfileBackup.zip')
+    }
+
+    It 'refuses a profile that holds only empty folders' {
+        $onlyDirs = Join-Path $root 'User Data/OnlyDirs'
+        $null = New-Item -ItemType Directory -Path (Join-Path $onlyDirs 'a/b') -Force
+
+        $result = Backup-ChromeProfile -Destination $backup -ProfilePath $onlyDirs -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*holds no files*'
+        Test-Path -LiteralPath (Join-Path $backup 'ChromeProfileBackup.zip') | Should -BeFalse
+    }
+
+    It 'writes an error and no partial zip when a folder named ChromeProfileBackup.zip is in the destination' {
+        $null = New-Item -ItemType Directory -Path (Join-Path $backup 'ChromeProfileBackup.zip') -Force
+
+        $result = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*folder named ChromeProfileBackup.zip*'
+        @(Get-ChildItem -LiteralPath (Join-Path $backup 'ChromeProfileBackup.zip') -Force) | Should -BeNullOrEmpty -Because 'the partial zip must not be moved into the folder'
+        @(Get-ChildItem -LiteralPath $backup -File -Force) | Should -BeNullOrEmpty
+    }
+
+    It 'refuses a -ProfilePath on a non-file-system provider' {
+        $result = Backup-ChromeProfile -Destination $backup -ProfilePath 'Variable:\chromeProfile' -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*not a file-system path*'
+        Test-Path -LiteralPath $backup | Should -BeFalse
+    }
+
+    It 'refuses a -Destination on a non-file-system provider, writing nothing anywhere, process directory included' {
+        $processDir = [System.Environment]::CurrentDirectory
+        $strayName = 'psu-stray-' + [guid]::NewGuid().ToString('N')
+        $variableDestination = 'Variable:\' + $strayName
+
+        $result = Backup-ChromeProfile -Destination $variableDestination -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*not a file-system path*'
+        Test-Path -LiteralPath (Join-Path $processDir $strayName) | Should -BeFalse -Because 'no zip may land in the process working directory'
+        Test-Path -LiteralPath (Join-Path (Get-Location).ProviderPath $strayName) | Should -BeFalse
     }
 }
 
@@ -198,7 +326,7 @@ Describe 'Restore-ChromeProfile' {
     }
 
     It 'restores a missing profile from a Backup-ChromeProfile zip and deletes the zip' {
-        # Brackets in the path: Compress-Archive -Path is wildcard-expanded, so it must be escaped.
+        # Brackets in the path: must be used literally, not as a wildcard.
         $chromeProfile = Join-Path $root 'User Data/Profile [1]'
         Initialize-FakeChromeProfile -Path $chromeProfile -Bookmarks 'saved'
         $null = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorAction Stop
@@ -211,6 +339,125 @@ Describe 'Restore-ChromeProfile' {
         Get-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') | Should -Be 'saved'
         Assert-FakeChromeProfile -Path $chromeProfile
         Test-Path -LiteralPath $zip | Should -BeFalse
+    }
+
+    It 'round-trips hidden files and folders and empty folders at any depth' {
+        Initialize-FakeChromeProfile -Path $chromeProfile -Bookmarks 'saved'
+        Add-HiddenProfileContent -Path $chromeProfile
+        $null = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorAction Stop
+        Remove-Item -LiteralPath $chromeProfile -Recurse -Force
+
+        $null = Restore-ChromeProfile -Path $backup -ProfilePath $chromeProfile -ErrorAction Stop
+
+        Assert-FakeChromeProfile -Path $chromeProfile
+        Assert-HiddenProfileContent -Path $chromeProfile
+    }
+
+    It 'round-trips through a bracketed backup folder and a bracketed profile, leaving look-alike folders alone' {
+        $source = Join-Path $root 'User Data/Profile [1]'
+        Initialize-FakeChromeProfile -Path $source -Bookmarks 'saved'
+        $decoyBackup = Join-Path $root 'Backup 1'
+        $null = New-Item -ItemType Directory -Path $decoyBackup -Force
+        $bracketedBackup = Join-Path $root 'Backup [1]'
+        $null = Backup-ChromeProfile -Destination $bracketedBackup -ProfilePath $source -ErrorAction Stop
+        Remove-Item -LiteralPath $source -Recurse -Force
+        $decoyProfile = Join-Path $root 'User Data/Profile 1'
+        $null = New-Item -ItemType Directory -Path $decoyProfile -Force
+
+        $null = Restore-ChromeProfile -Path $bracketedBackup -ProfilePath $source -ErrorAction Stop
+
+        Get-Content -LiteralPath (Join-Path $source 'Bookmarks') | Should -Be 'saved'
+        @(Get-ChildItem -LiteralPath $decoyProfile -Force) | Should -BeNullOrEmpty
+        @(Get-ChildItem -LiteralPath $decoyBackup -Force) | Should -BeNullOrEmpty
+    }
+
+    It 'still restores a zip written by the previous (Compress-Archive) writer: contents at the zip root' {
+        # The layout the old code produced: Compress-Archive of '<profile>/*' puts entries at the root.
+        $legacySource = Join-Path $root 'old-src'
+        $null = New-Item -ItemType Directory -Path (Join-Path $legacySource 'Extensions') -Force
+        Set-Content -LiteralPath (Join-Path $legacySource 'Bookmarks') -Value 'old writer'
+        Set-Content -LiteralPath (Join-Path $legacySource 'Extensions/marker.txt') -Value 'nested'
+        $null = New-Item -ItemType Directory -Path $backup -Force
+        Compress-Archive -Path (Join-Path $legacySource '*') -DestinationPath $zip -ErrorAction Stop
+
+        $result = Restore-ChromeProfile -Path $backup -ProfilePath $chromeProfile -ErrorAction Stop
+
+        $result | Should -BeOfType System.IO.DirectoryInfo
+        Get-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') | Should -Be 'old writer'
+        Get-Content -LiteralPath (Join-Path $chromeProfile 'Extensions/marker.txt') | Should -Be 'nested'
+        Test-Path -LiteralPath $zip | Should -BeFalse
+    }
+
+    It 'refuses a zip with an entry that escapes the profile folder (zip-slip), writing nothing and keeping the zip' {
+        $null = New-Item -ItemType Directory -Path $backup -Force
+        Add-Type -AssemblyName System.IO.Compression
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::Open($zip, [System.IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($name in 'Bookmarks', '../escaped.txt') {
+                $writer = New-Object System.IO.StreamWriter(($archive.CreateEntry($name)).Open())
+                try { $writer.Write('x') } finally { $writer.Dispose() }
+            }
+        }
+        finally { $archive.Dispose() }
+
+        $result = Restore-ChromeProfile -Path $backup -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*outside the destination folder*'
+        Test-Path -LiteralPath $zip | Should -BeTrue
+        Test-Path -LiteralPath $chromeProfile | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path (Split-Path -Parent $chromeProfile) 'escaped.txt') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $root 'User Data/escaped.txt') | Should -BeFalse
+    }
+
+    It 'resolves a relative -ProfilePath and -Path against the PowerShell location, not the process directory' {
+        Initialize-FakeChromeProfile -Path $chromeProfile -Bookmarks 'relative'
+        $null = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorAction Stop
+        Remove-Item -LiteralPath $chromeProfile -Recurse -Force
+        [System.Environment]::CurrentDirectory | Should -Not -Be (Get-Item -LiteralPath $root).FullName
+
+        Push-Location $root
+        try {
+            $result = Restore-ChromeProfile -Path 'backup' -ProfilePath 'User Data/Default' -ErrorAction Stop
+        }
+        finally { Pop-Location }
+
+        $result.FullName | Should -Be (Get-Item -LiteralPath $chromeProfile).FullName
+        Get-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') | Should -Be 'relative'
+        Test-Path -LiteralPath (Join-Path ([System.Environment]::CurrentDirectory) 'User Data') | Should -BeFalse
+    }
+
+    It 'refuses a -ProfilePath or -Path on a non-file-system provider, writing nothing and keeping the zip' {
+        Initialize-FakeChromeProfile -Path $chromeProfile
+        $null = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorAction Stop
+        Remove-Item -LiteralPath $chromeProfile -Recurse -Force
+        $processDir = [System.Environment]::CurrentDirectory
+        $strayName = 'psu-stray-' + [guid]::NewGuid().ToString('N')
+
+        $r1 = Restore-ChromeProfile -Path $backup -ProfilePath ('Variable:\' + $strayName) -ErrorVariable e1 -ErrorAction SilentlyContinue
+        $r2 = Restore-ChromeProfile -Path ('Variable:\' + $strayName) -ProfilePath $chromeProfile -ErrorVariable e2 -ErrorAction SilentlyContinue
+
+        $r1 | Should -BeNullOrEmpty
+        $r2 | Should -BeNullOrEmpty
+        "$e1" | Should -BeLike '*not a file-system path*'
+        "$e2" | Should -BeLike '*not a file-system path*'
+        Test-Path -LiteralPath $zip | Should -BeTrue
+        Test-Path -LiteralPath $chromeProfile | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $processDir -Force | Where-Object { $_.Name -like "$strayName*" }) | Should -BeNullOrEmpty
+        @(Get-ChildItem -LiteralPath (Get-Location).ProviderPath -Force | Where-Object { $_.Name -like "$strayName*" }) | Should -BeNullOrEmpty
+    }
+
+    It 'restores an empty folder, not an error, from a zip with no entries' {
+        $null = New-Item -ItemType Directory -Path $backup -Force
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::Open($zip, [System.IO.Compression.ZipArchiveMode]::Create).Dispose()
+
+        $result = Restore-ChromeProfile -Path $backup -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
+
+        "$err" | Should -BeNullOrEmpty
+        $result | Should -BeOfType System.IO.DirectoryInfo
+        @(Get-ChildItem -LiteralPath $chromeProfile -Force) | Should -BeNullOrEmpty
     }
 
     It 'refuses a zip in the old backup script layout (<Separator> separators), keeping it and creating nothing' -TestCases @(
@@ -323,6 +570,30 @@ Describe 'Restore-ChromeProfile' {
         $result | Should -Not -BeNullOrEmpty
         Test-Path -LiteralPath (Join-Path $chromeProfile 'Bookmarks') | Should -BeTrue
         Should -Invoke Get-ChromeDefaultBackupFolder -ModuleName ChromeProfile -Times 1 -Exactly
+    }
+}
+
+Describe 'Expand-ChromeBackupZip' {
+    It 'refuses an entry that lands in a sibling folder sharing the destination name as a prefix' {
+        InModuleScope ChromeProfile -Parameters @{ Base = (Join-Path $TestDrive ([guid]::NewGuid().Guid)) } {
+            param($Base)
+            $null = New-Item -ItemType Directory -Path $Base -Force
+            $zipPath = Join-Path $Base 'evil.zip'
+            $destination = Join-Path $Base 'dest'
+            Add-Type -AssemblyName System.IO.Compression
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $archive = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+            try {
+                $writer = New-Object System.IO.StreamWriter(($archive.CreateEntry('../dest-evil/x')).Open())
+                try { $writer.Write('x') } finally { $writer.Dispose() }
+            }
+            finally { $archive.Dispose() }
+
+            { Expand-ChromeBackupZip -ZipPath $zipPath -DestinationPath $destination } | Should -Throw '*outside the destination folder*'
+
+            Test-Path -LiteralPath (Join-Path $Base 'dest-evil') | Should -BeFalse
+            Test-Path -LiteralPath $destination | Should -BeFalse
+        }
     }
 }
 
