@@ -33,16 +33,22 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
     # One detector. It finds each LOADING SITE and asks one resolver whether the path given
     # there is rooted in the current directory.
     #   Loading sites: dot-source (. <path>), the call operator (& <path>), running a script
-    #     by path (.\x.ps1 -Arg), all three only for a .ps1/.psm1/.psd1 path (a literal, or a
-    #     Join-Path with such a child), and Import-Module / ipmo (-Name, -FullyQualifiedName, the
-    #     first positional argument, a splatted hashtable or array, pipeline input).
+    #     by path (.\x.ps1 -Arg), all three only for a path that may name a .ps1/.psm1/.psd1
+    #     (see below), and Import-Module / ipmo (-Name, -FullyQualifiedName, the first
+    #     positional argument, a splatted hashtable or array, pipeline input).
     #   The resolver follows: strings in every quote style, here-strings included ("lib\$x" is
     #     judged by its static text: the leading text or leading variable for the root, the
     #     trailing text for the extension), + concatenation (the leftmost operand for the root,
     #     the rightmost for the extension), variables assigned with = anywhere in the file
-    #     (scope-unaware), lists, parentheses, $( ), casts, member access ($PWD.Path),
-    #     ModuleSpecification hashtables, Join-Path (by its parent path), $PWD, and
-    #     Get-Location (pwd, gl). Command names match in any case and with a module qualifier
+    #     (scope-unaware), lists, member access ($PWD.Path), ModuleSpecification hashtables,
+    #     Join-Path (by its parent path), $PWD, and Get-Location (pwd, gl). Before any of that, every expression it inspects is unwrapped,
+    #     recursively, from ( ), $( ), @( ), a cast ([string]x) and a one-element pipeline, so
+    #     (Join-Path ($PWD) ([string]('x.ps1'))) is read as Join-Path $PWD 'x.ps1'.
+    #   Run with . or &, a path from a current-directory root passes only when it is STATICALLY
+    #     known not to be a script ('tool.exe', "$tool.exe", a variable only ever assigned such a
+    #     value). A file name that cannot be resolved (& (Join-Path $PWD $file), "$PWD\$name",
+    #     $PWD.Path + $x) is flagged: anchor the root to $PSScriptRoot instead.
+    #   Command names match in any case and with a module qualifier
     #     (Microsoft.PowerShell.Core\Import-Module); parameters match by any prefix (-N) and in
     #     -Name:value form. $PSScriptRoot and $PSCommandPath anchor a path; a variable never
     #     assigned in the file ($env:X, a parameter) is treated as unknown and passes.
@@ -57,9 +63,9 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
     # non-loading command (Test-Path, Copy-Item, Get-Content, Get-Module -ListAvailable), or
     # never used; paths handed to a child process (pwsh -File .\x.ps1, Start-Process);
     # foreach/parameter-bound variables; a relative path turned absolute by another command
-    # (Import-Module (Resolve-Path .\x), Convert-Path, Get-Item); a script child of Join-Path
-    # held in a variable (& (Join-Path $PWD $file)); a splatted Join-Path; paths built with -f, -join, -replace or
-    # [System.IO.Path]::Combine; a "...$x" whose static prefix is only \ or C: (what follows
+    # (Import-Module (Resolve-Path .\x), Convert-Path, Get-Item); a splatted Join-Path; a
+    # pipeline of several commands ((Get-Location | Select-Object -ExpandProperty Path)); paths
+    # built with -f, -join, -replace or [System.IO.Path]::Combine; a "...$x" whose static prefix is only \ or C: (what follows
     # may complete \\server or C:\, so it is unknown). Dynamic code is out of scope:
     # Invoke-Expression, [scriptblock]::Create, and code inside strings. Comments (including
     # help examples) are not in the AST.
@@ -168,16 +174,106 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             return (Test-RelativePathText -Value $Prefix -Mode $prefixMode)
         }
 
-        function Test-ScriptExtensionElement {
-            # True when the static trailing text of a string (or of any item in a list, or of a
-            # -Name:value argument) ends in .ps1/.psm1/.psd1.
+        function Get-UnwrappedElement {
+            # Strips the syntactic wrappers that do not change a value, recursively: ( ), $( ) and
+            # @( ) holding one statement, a single-element pipeline, a command expression, and a
+            # cast ([string]x). Every place the resolver inspects an expression unwraps it first.
             param($Element)
-            if ($Element -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
-                $Element -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) {
-                return ($Element.Value -match $script:scriptExtension)
+            $current = $Element
+            for ($i = 0; $i -lt 32; $i++) {
+                $inner = $null
+                if ($current -is [System.Management.Automation.Language.ParenExpressionAst]) { $inner = $current.Pipeline }
+                elseif ($current -is [System.Management.Automation.Language.SubExpressionAst] -or
+                    $current -is [System.Management.Automation.Language.ArrayExpressionAst]) {
+                    $statements = @($current.SubExpression.Statements)
+                    if ($statements.Count -eq 1) { $inner = $statements[0] }
+                } elseif ($current -is [System.Management.Automation.Language.PipelineAst]) {
+                    if ($current.PipelineElements.Count -eq 1) { $inner = $current.PipelineElements[0] }
+                } elseif ($current -is [System.Management.Automation.Language.CommandExpressionAst]) { $inner = $current.Expression }
+                elseif ($current -is [System.Management.Automation.Language.ConvertExpressionAst]) { $inner = $current.Child }
+                if ($null -eq $inner) { return $current }
+                $current = $inner
+            }
+            return $current
+        }
+
+        function Get-JoinPathChildElement {
+            # Returns every element Join-Path joins onto its parent: -ChildPath, -AdditionalChildPath
+            # and the positional arguments after the parent.
+            param([System.Management.Automation.Language.CommandAst]$Command)
+            $parentPath = Get-JoinPathParentElement -Command $Command
+            $elements = $Command.CommandElements
+            $i = 1
+            while ($i -lt $elements.Count) {
+                $element = $elements[$i]
+                if ($element -is [System.Management.Automation.Language.CommandParameterAst]) {
+                    $name = $element.ParameterName
+                    $isChild = (Test-ParameterPrefix -Full 'ChildPath' -Name $name) -or (Test-ParameterPrefix -Full 'AdditionalChildPath' -Name $name)
+                    if ($null -ne $element.Argument) {
+                        if ($isChild) { $element.Argument }
+                        $i++
+                        continue
+                    }
+                    if ($isChild) {
+                        if ($i + 1 -lt $elements.Count) { $elements[$i + 1] }
+                        $i += 2
+                        continue
+                    }
+                    if ('Resolve'.StartsWith($name, [System.StringComparison]::OrdinalIgnoreCase)) { $i++ } else { $i += 2 }
+                    continue
+                }
+                if ($element -ne $parentPath) { $element }
+                $i++
+            }
+        }
+
+        function Test-KnownNonScriptElement {
+            # True only when the path expression is STATICALLY known not to name a .ps1/.psm1/.psd1
+            # ('tool.exe', "$tool.exe", $PWD, a variable whose every assignment is such a path).
+            # Anything it cannot resolve (an unassigned variable, a command's output) is false: run
+            # with . or & from a current-directory root, an unknown file is flagged, not passed.
+            param($Element, [System.Management.Automation.Language.Ast]$Ast, [int]$Depth = 0)
+            $Element = Get-UnwrappedElement -Element $Element
+            if ($null -eq $Element -or $Depth -gt 8) { return $false }
+            $next = $Depth + 1
+            if ($Element -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+                return ($Element.Value -notmatch $script:scriptExtension)
+            }
+            if ($Element -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) {
+                if ($Element.Value -match $script:scriptExtension) { return $false }
+                $nested = @($Element.NestedExpressions)
+                if ($nested.Count -eq 0) { return $true }
+                $last = $nested[$nested.Count - 1]
+                # "$tool.exe" ends in static text; "$base\$name" ends in what $name holds.
+                if (-not $Element.Value.EndsWith($last.Extent.Text)) { return $true }
+                return (Test-KnownNonScriptElement -Element $last -Ast $Ast -Depth $next)
+            }
+            if ($Element -is [System.Management.Automation.Language.BinaryExpressionAst] -and
+                $Element.Operator -eq [System.Management.Automation.Language.TokenKind]::Plus) {
+                return (Test-KnownNonScriptElement -Element $Element.Right -Ast $Ast -Depth $next)
+            }
+            if ($Element -is [System.Management.Automation.Language.VariableExpressionAst]) {
+                if ($Element.VariablePath.UserPath -eq 'PWD') { return $true }
+                $values = @(Get-AssignedValue -Ast $Ast -Name $Element.VariablePath.UserPath)
+                if ($values.Count -eq 0) { return $false }
+                foreach ($value in $values) {
+                    if (-not (Test-KnownNonScriptElement -Element $value -Ast $Ast -Depth $next)) { return $false }
+                }
+                return $true
             }
             if ($Element -is [System.Management.Automation.Language.ArrayLiteralAst]) {
-                return (@($Element.Elements | Where-Object { Test-ScriptExtensionElement -Element $_ }).Count -gt 0)
+                foreach ($item in $Element.Elements) {
+                    if (-not (Test-KnownNonScriptElement -Element $item -Ast $Ast -Depth $next)) { return $false }
+                }
+                return $true
+            }
+            if ($Element -is [System.Management.Automation.Language.CommandAst] -and (Get-BaseCommandName -Command $Element) -eq 'Join-Path') {
+                $children = @(Get-JoinPathChildElement -Command $Element)
+                if ($children.Count -eq 0) { return $false }
+                foreach ($child in $children) {
+                    if (-not (Test-KnownNonScriptElement -Element $child -Ast $Ast -Depth $next)) { return $false }
+                }
+                return $true
             }
             return $false
         }
@@ -196,6 +292,7 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             # The resolver: true when the path expression $Element, used as $Mode (see
             # Test-RelativePathText), is rooted in the current directory.
             param($Element, [System.Management.Automation.Language.Ast]$Ast, [string]$Mode, [int]$Depth = 0)
+            $Element = Get-UnwrappedElement -Element $Element
             if ($null -eq $Element -or $Depth -gt 8) { return $false }
             $next = $Depth + 1
             if ($Element -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
@@ -204,7 +301,7 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             if ($Element -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) {
                 if (Test-AnchoredElement -Element $Element) { return $false }
                 # Judged by its static text: the extension in the trailing text, the root in the leading text.
-                if ($Mode -eq 'Command' -and $Element.Value -notmatch $script:scriptExtension) { return $false }
+                if ($Mode -eq 'Command' -and (Test-KnownNonScriptElement -Element $Element -Ast $Ast -Depth $next)) { return $false }
                 $nested = @($Element.NestedExpressions)
                 if ($nested.Count -eq 0) { return (Test-RelativePathText -Value $Element.Value -Mode $Mode) }
                 if ($Element.Value -match '^\.{1,2}([\\/]|$)') { return $true }
@@ -222,10 +319,10 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
                 $Element.Operator -eq [System.Management.Automation.Language.TokenKind]::Plus) {
                 # '.\' + 'Helper.psm1': judged by the leftmost operand (the root) and, run with
                 # . or &, the rightmost operand (the extension).
-                if ($Mode -eq 'Command' -and -not (Test-ScriptExtensionElement -Element $Element.Right)) { return $false }
-                $left = $Element.Left
+                if ($Mode -eq 'Command' -and (Test-KnownNonScriptElement -Element $Element.Right -Ast $Ast -Depth $next)) { return $false }
+                $left = Get-UnwrappedElement -Element $Element.Left
                 while ($left -is [System.Management.Automation.Language.BinaryExpressionAst] -and
-                    $left.Operator -eq [System.Management.Automation.Language.TokenKind]::Plus) { $left = $left.Left }
+                    $left.Operator -eq [System.Management.Automation.Language.TokenKind]::Plus) { $left = Get-UnwrappedElement -Element $left.Left }
                 if ($left -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
                     return (Test-RelativePrefixText -Prefix $left.Value -Mode $Mode)
                 }
@@ -252,16 +349,10 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
                 $command = Get-BaseCommandName -Command $Element
                 if ($command -eq 'Join-Path') {
                     $parentPath = Get-JoinPathParentElement -Command $Element
-                    if ($Mode -eq 'Command') {
-                        # Run with . or &, the joined path must name a script, not an .exe. The
-                        # child may be any quote style or a -ChildPath:value argument.
-                        $scriptChild = @($Element.CommandElements | Select-Object -Skip 1 | Where-Object {
-                                $candidate = $_
-                                if ($candidate -is [System.Management.Automation.Language.CommandParameterAst]) { $candidate = $candidate.Argument }
-                                $null -ne $candidate -and $candidate -ne $parentPath -and (Test-ScriptExtensionElement -Element $candidate)
-                            })
-                        if ($scriptChild.Count -eq 0) { return $false }
-                    }
+                    # Run with . or &, a joined path statically known to name a non-script (an
+                    # .exe) passes; a script child, or a child that cannot be resolved, is judged
+                    # by the parent (conservative: an unknown file under $PWD is flagged).
+                    if ($Mode -eq 'Command' -and (Test-KnownNonScriptElement -Element $Element -Ast $Ast -Depth $next)) { return $false }
                     return (Test-CurrentDirectoryPath -Element $parentPath -Ast $Ast -Mode 'Path' -Depth $next)
                 }
                 if ($script:locationCommands -contains $command) { return $true }
@@ -280,14 +371,11 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
                 # $PWD.Path, (Get-Location).Path: the object the member is read from.
                 return (Test-CurrentDirectoryPath -Element $Element.Expression -Ast $Ast -Mode 'Path' -Depth $next)
             }
+            # A list, or a $( ) / @( ) holding several statements: any item may be the path.
             $children = @()
             if ($Element -is [System.Management.Automation.Language.ArrayLiteralAst]) { $children = $Element.Elements }
-            elseif ($Element -is [System.Management.Automation.Language.ArrayExpressionAst]) { $children = $Element.SubExpression.Statements }
-            elseif ($Element -is [System.Management.Automation.Language.SubExpressionAst]) { $children = $Element.SubExpression.Statements }
-            elseif ($Element -is [System.Management.Automation.Language.ParenExpressionAst]) { $children = @($Element.Pipeline) }
-            elseif ($Element -is [System.Management.Automation.Language.CommandExpressionAst]) { $children = @($Element.Expression) }
-            elseif ($Element -is [System.Management.Automation.Language.ConvertExpressionAst]) { $children = @($Element.Child) }
-            elseif ($Element -is [System.Management.Automation.Language.PipelineAst] -and $Element.PipelineElements.Count -eq 1) { $children = $Element.PipelineElements }
+            elseif ($Element -is [System.Management.Automation.Language.ArrayExpressionAst] -or
+                $Element -is [System.Management.Automation.Language.SubExpressionAst]) { $children = $Element.SubExpression.Statements }
             foreach ($child in $children) {
                 if (Test-CurrentDirectoryPath -Element $child -Ast $Ast -Mode $Mode -Depth $next) { return $true }
             }
@@ -461,6 +549,35 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = 'a concatenated dot-slash module path'; Code = 'Import-Module (''.\'' + ''Helper.psm1'')' }
             @{ Name = 'a concatenated relative folder and variable'; Code = 'Import-Module (''lib\'' + $name)' }
             @{ Name = 'a dot-source of $PWD.Path concatenated with a script'; Code = '. ($PWD.Path + ''\Helper.ps1'')' }
+            # C6: every syntactic wrapper, unwrapped recursively, at every point the resolver reads.
+            @{ Name = 'the call operator on Join-Path $PWD with a parenthesized child'; Code = '& (Join-Path $PWD (''Helper.ps1''))' }
+            @{ Name = 'a dot-source of Join-Path $PWD with a parenthesized child'; Code = '. (Join-Path $PWD (''Helper.ps1''))' }
+            @{ Name = 'a Join-Path child in nested parentheses'; Code = '& (Join-Path $PWD ((''Helper.ps1'')))' }
+            @{ Name = 'a cast Join-Path child'; Code = '. (Join-Path $PWD ([string]''Helper.ps1''))' }
+            @{ Name = 'a $( ) Join-Path child'; Code = '. (Join-Path $PWD $(''Helper.ps1''))' }
+            @{ Name = 'an @( ) Join-Path child'; Code = '. (Join-Path $PWD @(''Helper.ps1''))' }
+            @{ Name = 'a parenthesized -ChildPath:value child'; Code = '. (Join-Path -Path $PWD -ChildPath:(''Helper.ps1''))' }
+            @{ Name = 'a parenthesized Join-Path parent'; Code = '. (Join-Path ($PWD) ''Helper.ps1'')' }
+            @{ Name = 'a cast Join-Path parent'; Code = '. (Join-Path ([string]$PWD) ''Helper.ps1'')' }
+            @{ Name = 'a $( ) around the whole Join-Path'; Code = '. $(Join-Path $PWD ''Helper.ps1'')' }
+            @{ Name = 'a cast around the whole Join-Path'; Code = '& ([string](Join-Path $PWD ''Helper.ps1''))' }
+            @{ Name = 'a parenthesized dot-slash script'; Code = '. (''.\Helper.ps1'')' }
+            @{ Name = 'a cast module path'; Code = 'Import-Module ([string]''.\Helper'')' }
+            @{ Name = 'a $( ) module path'; Code = 'Import-Module $(''.\Helper'')' }
+            @{ Name = 'an @( ) module path'; Code = 'Import-Module -Name @(''.\Helper'')' }
+            @{ Name = 'a parenthesized concatenation operand'; Code = '. ((''.\'') + (''Helper.ps1''))' }
+            @{ Name = 'a parenthesized variable assignment'; Code = "`$helper = ('.\Helper.ps1')`n. `$helper" }
+            # C6: run with . or & from a current-directory root, an unresolvable file is flagged.
+            @{ Name = 'the call operator on Join-Path $PWD with a variable child'; Code = '& (Join-Path $PWD $file)' }
+            @{ Name = 'a dot-source of Join-Path . with a command-output child'; Code = '. (Join-Path ''.'' (Get-ChildItem).Name)' }
+            @{ Name = 'Join-Path Get-Location with an interpolated variable child'; Code = '& (Join-Path (Get-Location) "$name")' }
+            @{ Name = 'Join-Path (Get-Location).Path with a variable child'; Code = '. (Join-Path (Get-Location).Path $file)' }
+            @{ Name = 'Join-Path from a traced Get-Location variable with a variable child'; Code = "`$base = Get-Location`n. (Join-Path `$base `$file)" }
+            @{ Name = 'Join-Path from a drive-relative parent with a variable child'; Code = '. (Join-Path ''C:lib'' $file)' }
+            @{ Name = 'Join-Path from an unrooted parent with a variable child'; Code = '& (Join-Path ''lib'' $file)' }
+            @{ Name = 'a variable child assigned both an .exe and an unknown'; Code = "`$f = 'tool.exe'`n`$f = `$other`n& (Join-Path `$PWD `$f)" }
+            @{ Name = 'an interpolated $PWD path ending in a variable'; Code = '. "$PWD\$name"' }
+            @{ Name = 'a $PWD.Path concatenation ending in a variable'; Code = '& ($PWD.Path + $name)' }
         ) {
             param($Name, $Code)
             $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
@@ -512,6 +629,16 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = 'an anchored concatenated module path'; Code = 'Import-Module ($PSScriptRoot + ''\Helper.psm1'')' }
             @{ Name = 'the call operator on a concatenated $PWD executable'; Code = '& ($PWD.Path + ''\tool.exe'')' }
             @{ Name = 'a double-quoted import by module name'; Code = 'Import-Module "Pester"' }
+            # C6: wrappers around a non-script child, and unknown children under a rooted parent.
+            @{ Name = 'the call operator on Join-Path $PWD with a parenthesized .exe'; Code = '& (Join-Path $PWD (''tool.exe''))' }
+            @{ Name = 'the call operator on Join-Path $PWD with a cast .exe'; Code = '& (Join-Path $PWD ([string]$(''tool.exe'')))' }
+            @{ Name = 'the call operator on Join-Path $PWD with a variable holding an .exe'; Code = "`$tool = 'tool.exe'`n& (Join-Path `$PWD `$tool)" }
+            @{ Name = 'the call operator on Join-Path $PSScriptRoot with a variable child'; Code = '& (Join-Path $PSScriptRoot $file)' }
+            @{ Name = 'a dot-source of Join-Path from a parenthesized $PSScriptRoot'; Code = '. (Join-Path ($PSScriptRoot) $file)' }
+            @{ Name = 'the call operator on Join-Path from an unassigned variable with a variable child'; Code = '& (Join-Path $env:ProgramFiles $file)' }
+            @{ Name = 'the call operator on Join-Path from a bare drive with a variable child'; Code = '& (Join-Path ''C:'' $file)' }
+            @{ Name = 'Join-Path $PWD with a variable child, never loaded'; Code = '$out = Join-Path $PWD $file' }
+            @{ Name = 'a parenthesized import by module name'; Code = 'Import-Module (''Pester'')' }
         ) {
             param($Name, $Code)
             $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
