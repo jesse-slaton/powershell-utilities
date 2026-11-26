@@ -61,12 +61,14 @@ Describe 'ConvertTo-Seconds' {
 Describe 'InvokeWPRSession' {
     BeforeEach {
         Mock Start-Process { [pscustomobject]@{ Id = 42; HasExited = $true; ExitCode = 0 } }
-        Mock Invoke-Wpr { }
+        # Invoke-Wpr returns the wpr.exe exit code.
+        Mock Invoke-Wpr { 0 }
     }
 
     It 'starts the profile at Light level and stops into the output file' {
         Mock Start-Sleep { }
-        $null = InvokeWPRSession -WprProfile 'CPU' -OutputFile 'C:\ETLs\pc.etl' -Seconds 5
+        $output = InvokeWPRSession -WprProfile 'CPU' -OutputFile 'C:\ETLs\pc.etl' -Seconds 5
+        $output | Should -Contain 'ETL file saved to C:\ETLs\pc.etl.'
         Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { $ArgumentList -eq '-start CPU.light -filemode' -and $Wait }
         Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 5 }
         Should -Invoke Invoke-Wpr -Times 1 -Exactly -ParameterFilter { $ArgumentList[0] -eq '-stop' -and $ArgumentList[1] -eq 'C:\ETLs\pc.etl' }
@@ -96,6 +98,32 @@ Describe 'InvokeWPRSession' {
         Should -Invoke Invoke-Wpr -Times 0 -Exactly
         Should -Invoke Start-Sleep -Times 0 -Exactly
     }
+
+    It 'cancels the trace and claims no ETL file when wpr -stop fails' {
+        Mock Start-Sleep { }
+        Mock Invoke-Wpr { 3 } -ParameterFilter { $ArgumentList -contains '-stop' }
+        $script:output = @()
+        { InvokeWPRSession -WprProfile 'CPU' -OutputFile 'C:\ETLs\pc.etl' -Seconds 5 | ForEach-Object { $script:output += $_ } } |
+            Should -Throw '*wpr -stop C:\ETLs\pc.etl failed with exit code 3*'
+        Should -Invoke Invoke-Wpr -Times 1 -Exactly -ParameterFilter { $ArgumentList -contains '-cancel' }
+        $script:output | Should -Not -BeLike 'ETL file saved*'
+        $script:output | Should -Not -BeLike 'WPR recording has stopped*'
+    }
+
+    It 'warns when wpr -cancel fails' {
+        Mock Start-Sleep { throw 'stopped' }
+        Mock Invoke-Wpr { 1 } -ParameterFilter { $ArgumentList -contains '-cancel' }
+        Mock Write-Warning { }
+        { InvokeWPRSession -WprProfile 'CPU' -OutputFile 'C:\ETLs\pc.etl' -Seconds 5 } | Should -Throw 'stopped'
+        Should -Invoke Write-Warning -Times 1 -Exactly -ParameterFilter { $Message -like 'wpr -cancel failed with exit code 1.*' }
+    }
+
+    It 'does not warn when wpr -cancel succeeds' {
+        Mock Start-Sleep { throw 'stopped' }
+        Mock Write-Warning { }
+        { InvokeWPRSession -WprProfile 'CPU' -OutputFile 'C:\ETLs\pc.etl' -Seconds 5 } | Should -Throw 'stopped'
+        Should -Invoke Write-Warning -Times 0 -Exactly
+    }
 }
 
 Describe 'Invoke-WPRSensor' {
@@ -121,7 +149,8 @@ Describe 'Invoke-WPRSensor' {
     It 'writes the error to the error stream' {
         $folder = Join-Path $TestDrive 'error-stream'
         $null = New-Item -ItemType Directory -Path $folder
-        $output = Invoke-WPRSensor -Duration 'soon' -WprProfile 'CPU' -OutputPath $folder 2>&1
+        # -ErrorAction Continue: the CI shell runs with $ErrorActionPreference = 'stop'.
+        $output = Invoke-WPRSensor -Duration 'soon' -WprProfile 'CPU' -OutputPath $folder -ErrorAction Continue 2>&1
         $errors = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
         $errors.Count | Should -Be 1
         "$($errors[0])" | Should -BeLike 'An error occurred: Invalid duration format*'
@@ -130,15 +159,41 @@ Describe 'Invoke-WPRSensor' {
     It 'writes and logs a failed wpr -start' {
         Mock Start-Process { [pscustomobject]@{ Id = 42; HasExited = $true; ExitCode = 5 } }
         Mock Start-Sleep { }
-        Mock Invoke-Wpr { }
+        Mock Invoke-Wpr { 0 }
         $folder = Join-Path $TestDrive 'start-failed'
         $null = New-Item -ItemType Directory -Path $folder
-        $output = Invoke-WPRSensor -Duration '5m' -WprProfile 'CPU' -OutputPath $folder 2>&1
+        $output = Invoke-WPRSensor -Duration '5m' -WprProfile 'CPU' -OutputPath $folder -ErrorAction Continue 2>&1
         $errors = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
         $errors.Count | Should -Be 1
         "$($errors[0])" | Should -BeLike 'An error occurred: wpr -start CPU.light -filemode failed with exit code 5.'
         Get-Content -LiteralPath (Get-ChildItem -LiteralPath $folder -Filter '*.log').FullName | Should -Be 'Error: wpr -start CPU.light -filemode failed with exit code 5.'
         Should -Invoke Invoke-Wpr -Times 0 -Exactly
+    }
+
+    It 'writes, logs and claims no ETL file for a failed wpr -stop' {
+        Mock Start-Process { [pscustomobject]@{ Id = 42; HasExited = $true; ExitCode = 0 } }
+        Mock Start-Sleep { }
+        Mock Invoke-Wpr { 0 }
+        Mock Invoke-Wpr { 3 } -ParameterFilter { $ArgumentList -contains '-stop' }
+        $folder = Join-Path $TestDrive 'stop-failed'
+        $null = New-Item -ItemType Directory -Path $folder
+        $output = Invoke-WPRSensor -Duration '5m' -WprProfile 'CPU' -OutputPath $folder -ErrorAction Continue 2>&1
+        $errors = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+        $errors.Count | Should -Be 1
+        "$($errors[0])" | Should -BeLike 'An error occurred: wpr -stop * failed with exit code 3.'
+        @($output | Where-Object { $_ -is [string] -and $_ -like 'ETL file saved*' }).Count | Should -Be 0
+        Get-Content -LiteralPath (Get-ChildItem -LiteralPath $folder -Filter '*.log').FullName | Should -BeLike 'Error: wpr -stop * failed with exit code 3.'
+        Should -Invoke Invoke-Wpr -Times 1 -Exactly -ParameterFilter { $ArgumentList -contains '-cancel' }
+    }
+
+    It 'logs the error before a caller Stop preference terminates it' {
+        $folder = Join-Path $TestDrive 'stop-preference'
+        $null = New-Item -ItemType Directory -Path $folder
+        { Invoke-WPRSensor -Duration 'soon' -WprProfile 'CPU' -OutputPath $folder -ErrorAction Stop } |
+            Should -Throw 'An error occurred: Invalid duration format*'
+        $logs = @(Get-ChildItem -LiteralPath $folder -Filter '*.log')
+        $logs.Count | Should -Be 1
+        Get-Content -LiteralPath $logs[0].FullName | Should -BeLike 'Error: Invalid duration format*'
     }
 
     It 'records for the parsed duration into COMPUTERNAME_timestamp.etl' {

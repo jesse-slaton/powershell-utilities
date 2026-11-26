@@ -5,7 +5,9 @@ Starts a Windows Performance Recorder (WPR) session.
 .DESCRIPTION
 Starts a WPR recording (wpr.exe -start <profile> -filemode) with the given profile, waits for the given duration, then stops it with wpr -stop, which writes an ETL file named <ComputerName>_<yyyy-MM-dd_HH-mm-ss>.etl to OutputPath. The profile is used at its Light detail level, or at its Verbose level when the script is run with -Verbose. Progress messages (start and stop times, the saved ETL path) are written to the output stream as strings.
 
-If the script body throws (an invalid duration, or an OutputPath that does not exist), the error is written with Write-Error, and the script tries to append it to <ComputerName>_<yyyy-MM-dd_HH-mm-ss>.log in OutputPath. If wpr -start fails (for example, the session is not elevated, or another WPR trace is already running), that is reported the same way, and the script neither sleeps nor runs wpr -stop or wpr -cancel, so a trace someone else started is left alone. A failure of wpr -stop itself does not throw, so it is not reported this way.
+If the script body throws (an invalid duration, or an OutputPath that does not exist), the error is written with Write-Error, and the script tries to append it to <ComputerName>_<yyyy-MM-dd_HH-mm-ss>.log in OutputPath. If wpr -start fails (for example, the session is not elevated, or another WPR trace is already running), that is reported the same way, and the script neither sleeps nor runs wpr -stop or wpr -cancel, so a trace someone else started is left alone. If wpr -stop fails, that is reported the same way too, no ETL file is claimed, and the script runs wpr -cancel so the trace does not keep running; a failed wpr -cancel is written as a warning.
+
+The error log is written before the error, so it is written even when the caller's ErrorActionPreference is Stop, which turns the error into a terminating one.
 
 .PARAMETER Duration
 Specifies the duration as one or more whole numbers, each followed by a unit: h, hr, hrs, hour or hours; m, min, mins, minute or minutes; s, sec, secs, second or seconds (any case, spaces allowed). Examples: '1m', '300s', '1h30m', '5min', '10minutes', '30sec', '1hr', '2hours', '1 hour 30 min'. All parts are added up. Fractions ('1.5h'), negative numbers and bare numbers without a unit are rejected. Default is '5m'.
@@ -72,10 +74,13 @@ function ConvertTo-Seconds {
 }
 
 function Invoke-Wpr {
-    # Runs wpr.exe with the given arguments. A separate function so tests can mock it.
+    # Runs wpr.exe with the given arguments and returns its exit code. A nonzero exit code from
+    # a native command does not throw, so every caller must check it. A separate function so
+    # tests can mock it.
     param([string[]]$ArgumentList)
 
-    & wpr.exe @ArgumentList
+    $null = & wpr.exe @ArgumentList
+    $LASTEXITCODE
 }
 
 function InvokeWPRSession {
@@ -93,6 +98,9 @@ function InvokeWPRSession {
 
     If 'wpr -start' exits with a nonzero code (for example, another WPR trace is already running), the function throws
     before it sleeps, and runs neither 'wpr -stop' nor 'wpr -cancel', which would act on that other trace.
+
+    If 'wpr -stop' exits with a nonzero code, the function runs 'wpr -cancel' so the trace does not keep running, and
+    throws without claiming an ETL file. A nonzero exit code from 'wpr -cancel' is written as a warning.
 
     .PARAMETER WprProfile
     The WPR profile to be used for the recording session.
@@ -139,12 +147,19 @@ function InvokeWPRSession {
         Start-Sleep -Seconds $Seconds
 
         # Stop the WPR recording, which will complete the process and generate the ETL file.
-        Invoke-Wpr -ArgumentList '-stop', $OutputFile | Out-Null
+        $stopExitCode = Invoke-Wpr -ArgumentList '-stop', $OutputFile
+        if ($stopExitCode -ne 0) {
+            throw "wpr -stop $OutputFile failed with exit code $stopExitCode."
+        }
         $stopped = $true
     }
     finally {
         if (-not $stopped) {
-            Invoke-Wpr -ArgumentList '-cancel' | Out-Null
+            # A warning, not a throw: a throw here would hide the error that got us here.
+            $cancelExitCode = Invoke-Wpr -ArgumentList '-cancel'
+            if ($cancelExitCode -ne 0) {
+                Write-Warning "wpr -cancel failed with exit code $cancelExitCode. The trace may still be running; end it with wpr -cancel."
+            }
         }
     }
 
@@ -191,10 +206,11 @@ function Invoke-WPRSensor {
     }
     catch {
         $errorMessage = $_.Exception.Message
-        Write-Error "An error occurred: $errorMessage"
+        # Log first: under a caller's ErrorActionPreference of Stop, Write-Error terminates.
         $logFile = Join-Path -Path $OutputPath -ChildPath "${computerName}_$timestamp.log"
         Add-Content -Path $logFile -Value "Error: $errorMessage"
         Write-Verbose "Error details have been logged to $logFile."
+        Write-Error "An error occurred: $errorMessage"
     }
 }
 
