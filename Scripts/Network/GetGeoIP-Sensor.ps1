@@ -9,8 +9,7 @@ function Get-GeoIP {
     .Example
     Get-GeoIP -IPAddress 96.23.36.24
     .Example
-    $IP = Get-NetStat | select -ExpandProperty ForeignAddressIP | Where-Object {$_ -notlike '`['}
-    Get-GeoIP -IPAddress $IP
+    Get-GeoIP -IPAddress 8.8.8.8, 1.1.1.1
     .Example
     $IP = (Get-NetTCPConnection).remoteaddress | Where-Object {$_ -notmatch '0.0.0.0|:'}
     Get-GeoIP -IPAddress $IP
@@ -24,21 +23,21 @@ function Get-GeoIP {
 
     This file only defines the function; dot-source it before calling Get-GeoIP.
 
-    Known issues (not fixed here):
-    - A failed lookup (no network, an HTTP error) writes a warning ('<IP> : <error>')
-      and no object. The -ErrorAction SilentlyContinue on Invoke-RestMethod has no
-      effect, because those failures are terminating errors and reach the catch block.
-    - The service's status field is not checked, so a lookup it refuses (such as a
-      private or reserved address) still returns an object, with empty location fields.
-    - The IPv4 validation pattern is not anchored: any string that contains an IPv4
-      address passes. Plain IPv6 addresses are rejected.
-    - The second example uses Get-NetStat, which is not a built-in command.
+    Each address must be a whole dotted IPv4 address (four octets, 0 to 255); any
+    other string, including an IPv6 address, is rejected before any lookup. A failed
+    lookup (no network, an HTTP error) writes a warning ('<IP> : <error>') and no
+    object, then the next address is looked up.
+
+    Known issue (not fixed here): the service's status field is not checked, so a
+    lookup it refuses (such as a private or reserved address) still returns an
+    object, with empty location fields.
     #>
     [CmdletBinding()]
     param(
         [Parameter (Mandatory = $true,
             ValueFromPipeline = $false)]
-        [ValidatePattern("(?:(?:1\d\d|2[0-5][0-5]|2[0-4]\d|0?[1-9]\d|0?0?\d)\.){3}(?:1\d\d|2[0-5][0-5]|2[0-4]\d|0?[1-9]\d|0?0?\d)")]
+        # Anchored (\A ... \z) so the whole string must be the address; each octet is 0-255.
+        [ValidatePattern('\A(?:(?:25[0-5]|2[0-4]\d|1\d\d|0?[1-9]\d|0{0,2}\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|0?[1-9]\d|0{0,2}\d)\z')]
         [string[]]$IPAddress
     )
     begin {
@@ -50,7 +49,8 @@ function Get-GeoIP {
             Write-Progress -Activity "Resoving IPAddress: $IP" -Status "$CurrentIP of $($IPAddress.Count)" -PercentComplete (($CurrentIP / $IPAddress.Count) * 100)
             try {
                 Write-Verbose 'Sending Request to http://ip-api.com/json/'
-                Invoke-RestMethod -Method Get -Uri "http://ip-api.com/json/$IP" -ErrorAction SilentlyContinue | Foreach-object {
+                # -ErrorAction Stop so every failure, terminating or not, reaches the catch block's warning.
+                Invoke-RestMethod -Method Get -Uri "http://ip-api.com/json/$IP" -ErrorAction Stop | Foreach-object {
                     [pscustomobject]@{
                         IPAddress     = $IP
                         Country       = $_.Country
