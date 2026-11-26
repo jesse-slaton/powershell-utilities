@@ -86,7 +86,10 @@ Module behavior tests live in `Tests/Unit/` with the script tests rather than in
 folder: CI runs `./Tests` on Windows PowerShell 5.1 and PowerShell 7, the shared harness is there,
 and the orphaned-test check covers them. A test imports the manifest (importing only defines
 functions) and mocks with `-ModuleName <Name>`; wrap COM, registry, network and other
-machine-touching calls in a `Private/` helper so they can be mocked on any OS.
+machine-touching calls in a `Private/` helper so they can be mocked on any OS. A test that must use
+the real Windows-only object (for example the Windows Installer COM object) goes in the same file,
+in its own `Describe` with `-Skip:(-not $script:onWindows)`, where `$script:onWindows = $env:OS -eq 'Windows_NT'`
+is set in `BeforeDiscovery` (`$IsWindows` does not exist on Windows PowerShell 5.1).
 
 ## Prerequisites
 

@@ -66,7 +66,16 @@ function Invoke-MsiComMember {
         [object[]]$Arguments
     )
 
-    $Target.GetType().InvokeMember($Name, $Kind, $null, $Target, $Arguments)
+    # Unwrap PSObject wrappers first. Cmdlet output (Join-Path, Get-Item) arrives wrapped, and
+    # InvokeMember is plain reflection, so the wrapper itself would reach COM, which rejects it
+    # with DISP_E_TYPEMISMATCH. A value from a .NET method call is already unwrapped.
+    $plainArguments = $null
+    if ($null -ne $Arguments) {
+        $plainArguments = [object[]]@(foreach ($argument in $Arguments) {
+                if ($argument -is [psobject]) { $argument.psobject.BaseObject } else { $argument }
+            })
+    }
+    $Target.GetType().InvokeMember($Name, $Kind, $null, $Target, $plainArguments)
 }
 
 function Close-MsiComObject {
@@ -77,7 +86,10 @@ function Close-MsiComObject {
     .DESCRIPTION
         Calls Marshal.ReleaseComObject so the underlying handle (for a Database, the open
         .msi file) is freed immediately instead of at garbage collection. A $null input is
-        ignored, so callers can release objects that were never created. Private to MsiTools.
+        ignored, so callers can release objects that were never created. Any other value that
+        is not a COM object is not released: it gets a non-terminating error naming its type.
+        ReleaseComObject would throw on it, and callers release in finally blocks, where that
+        exception would replace the error that actually went wrong. Private to MsiTools.
 
     .PARAMETER InputObject
         The COM object to release (Installer, Database, View or Record), or $null.
@@ -91,7 +103,11 @@ function Close-MsiComObject {
         [object]$InputObject
     )
 
-    if ($null -ne $InputObject) {
-        $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($InputObject)
+    if ($null -eq $InputObject) { return }
+    if (-not [System.Runtime.InteropServices.Marshal]::IsComObject($InputObject)) {
+        $message = 'Not a COM object, so not released: {0}' -f $InputObject.GetType().FullName
+        Write-Error -Message $message -Category InvalidArgument -TargetObject $InputObject
+        return
     }
+    $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($InputObject)
 }
