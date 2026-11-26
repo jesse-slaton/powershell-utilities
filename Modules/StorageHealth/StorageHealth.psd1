@@ -7,7 +7,7 @@
     PowerShellVersion    = '5.1'
     CompatiblePSEditions = @('Desktop', 'Core')
     RequiredModules      = @()
-    FunctionsToExport    = @('Get-LastShadowCopyDate', 'Test-ShadowCopy')
+    FunctionsToExport    = @('Enable-SystemDriveRestore', 'Get-LastShadowCopyDate', 'Get-ShadowStorageMaxSize', 'Test-ShadowCopy')
     CmdletsToExport      = @()
     VariablesToExport    = @()
     AliasesToExport      = @()
