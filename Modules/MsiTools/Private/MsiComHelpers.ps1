@@ -66,7 +66,16 @@ function Invoke-MsiComMember {
         [object[]]$Arguments
     )
 
-    $Target.GetType().InvokeMember($Name, $Kind, $null, $Target, $Arguments)
+    # Unwrap PSObject wrappers first. Cmdlet output (Join-Path, Get-Item) arrives wrapped, and
+    # InvokeMember is plain reflection, so the wrapper itself would reach COM, which rejects it
+    # with DISP_E_TYPEMISMATCH. A value from a .NET method call is already unwrapped.
+    $plainArguments = $null
+    if ($null -ne $Arguments) {
+        $plainArguments = [object[]]@(foreach ($argument in $Arguments) {
+                if ($argument -is [psobject]) { $argument.psobject.BaseObject } else { $argument }
+            })
+    }
+    $Target.GetType().InvokeMember($Name, $Kind, $null, $Target, $plainArguments)
 }
 
 function Close-MsiComObject {

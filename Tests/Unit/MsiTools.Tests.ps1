@@ -249,6 +249,24 @@ Describe 'Get-MsiFileInfo' {
     }
 }
 
+Describe 'Invoke-MsiComMember' {
+    BeforeAll {
+        # Stand-in target: reports the .NET type each argument arrives as through InvokeMember.
+        if (-not ('MsiArgumentProbe' -as [type])) {
+            Add-Type -TypeDefinition 'public class MsiArgumentProbe { public string Kinds(object a, object b) { return a.GetType().FullName + "," + b.GetType().FullName; } }'
+        }
+    }
+
+    It 'passes cmdlet output to the member as the plain value, not its PSObject wrapper' {
+        $path = Join-Path $TestDrive 'held.msi'
+        $kinds = & (Get-Module -Name MsiTools) {
+            param($p)
+            Invoke-MsiComMember -Target ([MsiArgumentProbe]::new()) -Name Kinds -Arguments @($p, 0)
+        } $path
+        $kinds | Should -Be 'System.String,System.Int32'
+    }
+}
+
 Describe 'Close-MsiComObject' {
     # Not mocked: only the guard runs, because no input here is a COM object.
     It 'ignores $null' {
@@ -270,10 +288,11 @@ Describe 'Close-MsiComObject' {
 
 Describe 'Get-MsiFileInfo against the real Windows Installer COM object' -Skip:(-not $script:onWindows) {
     BeforeAll {
-        # Late-bound call, as in the module: the Installer objects expose no type information.
+        # Call through the module's own helper, so test and module share one invoke rule
+        # (late binding, and PSObject wrappers removed before the arguments reach COM).
         function Invoke-RealMsiMember {
             param([object]$Target, [string]$Name, [object[]]$Arguments)
-            $Target.GetType().InvokeMember($Name, 'InvokeMethod', $null, $Target, $Arguments)
+            & (Get-Module -Name MsiTools) { param($t, $n, $a) Invoke-MsiComMember -Target $t -Name $n -Arguments $a } $Target $Name $Arguments
         }
 
         # Release through the module's own helper, so test and module share one release rule:
