@@ -83,7 +83,8 @@ function Invoke-PathRepairCore {
             $reason = 'Duplicate entry'
             $duplicateOf = $seenPaths[$suggested]
         }
-        if (-not $remove -and 'NonExistentPaths' -in $FixTypes -and $suggested -notmatch '^[A-Z]:\\$' -and
+        # A drive root, with or without a balanced pair of quotes, is never removed.
+        if (-not $remove -and 'NonExistentPaths' -in $FixTypes -and $suggested -notmatch '^("?)[A-Z]:\\\1$' -and
             -not ($SkipUnc -and $suggested.Trim('"').StartsWith('\\')) -and -not (Test-PathDirectory -Path $suggested)) {
             $remove = $true
             $reason = 'Non-existent directory'

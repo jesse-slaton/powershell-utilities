@@ -239,6 +239,16 @@ Describe 'Repair-PathEntry' {
         Should -Invoke Write-EnvironmentVariable -ModuleName PathRepair -Times 0 -Exactly
     }
 
+    It 'never removes a drive root in either case or in quotes, even when the drive is missing' {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { 'C:\Keep;c:\;D:\;"E:\";"f:\"' }
+        Mock Test-PathDirectory -ModuleName PathRepair { $Path -eq 'C:\Keep' }
+        $result = Repair-PathEntry -FixTypes NonExistentPaths -Confirm:$false
+        @($result.Changes) | Should -BeNullOrEmpty
+        $result.NewPath | Should -BeExactly $result.OriginalPath
+        $result.Applied | Should -BeFalse
+        Should -Invoke Write-EnvironmentVariable -ModuleName PathRepair -Times 0 -Exactly
+    }
+
     It 'writes nothing when the repair would leave the User PATH empty' {
         Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { '\\server\share;Z:\Mapped' }
         $result = Repair-PathEntry -Confirm:$false -ErrorVariable err -ErrorAction SilentlyContinue
