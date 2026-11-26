@@ -54,6 +54,8 @@ function Invoke-PathRepairCore {
     $seenPaths = @{}
     $fixedPath = New-Object System.Collections.Generic.List[string]
     $changes = New-Object System.Collections.Generic.List[object]
+    # Entries kept exactly as they are, with no change of their own that could be declined.
+    $stablePaths = @{}
 
     for ($index = 0; $index -lt $entries.Count; $index++) {
         $entry = $entries[$index]
@@ -92,7 +94,30 @@ function Invoke-PathRepairCore {
             $remove = $true
             $reason = 'Non-existent directory'
             if ($suggested -match '^"(?=[^"]*[^";\s])[^"]*;[^"]*"$') {
-                $remove = $false; $suggested = @($suggested.Trim('"') -split ';' | Where-Object { $_.Trim() }) -join ';'; $reason = 'Quoted span holds several entries'
+                $remove = $false
+                $reason = 'Quoted span holds several entries'
+                $parts = @($suggested.Trim('"') -split ';' | Where-Object { $_.Trim() })
+                if ('Duplicates' -in $FixTypes) {
+                    # Drop a part that repeats an earlier part of this span, or an earlier entry
+                    # that is kept as it is. A part that repeats an entry with its own pending
+                    # change stays, because that change can still be declined.
+                    $spanSeen = @{}
+                    $unique = @($parts | Where-Object {
+                        $isDuplicate = $spanSeen.ContainsKey($_) -or $stablePaths.ContainsKey($_)
+                        $spanSeen[$_] = $true
+                        -not $isDuplicate
+                    })
+                    if ($unique.Count -lt $parts.Count) {
+                        $reason = 'Quoted span holds several entries, duplicates dropped'
+                    }
+                    $parts = $unique
+                }
+                if ($parts.Count -eq 0) {
+                    $remove = $true
+                    $reason = 'Quoted span holds only duplicate entries'
+                } else {
+                    $suggested = $parts -join ';'
+                }
             }
         }
 
@@ -104,6 +129,15 @@ function Invoke-PathRepairCore {
             $changes.Add([pscustomobject]@{ Index = $index; Entry = $entry; NewEntry = $suggested; Reason = $reason; DuplicateOf = $null })
         }
         $seenPaths[$suggested] = $index
+        if ($suggested -ceq $entry) {
+            $stablePaths[$suggested] = $true
+        } elseif ($reason -like 'Quoted span holds several entries*') {
+            # Each part of an unquoted span is an entry of its own from here on, so a later
+            # copy of a part is a duplicate of this span, skipped if the span is declined.
+            foreach ($part in $suggested -split ';') {
+                if (-not $seenPaths.ContainsKey($part)) { $seenPaths[$part] = $index }
+            }
+        }
         $fixedPath.Add($suggested)
     }
 

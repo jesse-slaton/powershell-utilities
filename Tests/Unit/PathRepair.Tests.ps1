@@ -297,6 +297,19 @@ Describe 'Repair-PathEntry' {
         @($result.Changes | Where-Object { $_.Reason -eq 'Empty or blank entry' }).Count | Should -Be 2
     }
 
+    It 'drops duplicate parts of an unquoted span: <Path>' -ForEach @(
+        @{ Path = '"C:\A;C:\A";C:\B'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds several entries, duplicates dropped' }
+        @{ Path = 'C:\A;"C:\A;C:\B"'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds several entries, duplicates dropped' }
+        @{ Path = '"C:\A;C:\B";C:\A'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds several entries|Duplicate entry' }
+        @{ Path = 'C:\A;"C:\A;C:\A";C:\B'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds only duplicate entries' }
+    ) {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { $Path }
+        Mock Test-PathDirectory -ModuleName PathRepair { @('C:\A', 'C:\B') -contains $Path }
+        $result = Repair-PathEntry -Confirm:$false
+        $result.NewPath | Should -BeExactly $NewPath
+        @($result.Changes | ForEach-Object { $_.Reason }) -join '|' | Should -Be $Reasons
+    }
+
     It 'writes nothing when the repair would leave the User PATH empty' {
         Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { '\\server\share;Z:\Mapped' }
         $result = Repair-PathEntry -Confirm:$false -ErrorVariable err -ErrorAction SilentlyContinue
@@ -396,6 +409,23 @@ Describe 'Select-ApprovedPathChange' {
             $plan = Invoke-PathRepairCore -FixTypes UnbalancedQuotes, Duplicates, NonExistentPaths
             @($plan.Changes)[1].DuplicateOf | Should -Be 0
             $WhatIfPreference = $WhatIf
+            Select-ApprovedPathChange -Cmdlet $Fake -Target 'User PATH' -Plan $plan
+        }
+        $fake.Calls.Count | Should -Be $Calls
+        $result.NewPath | Should -BeExactly $NewPath
+    }
+
+    It 'keeps a later copy of a span part, without asking, when the span is declined' -ForEach @(
+        @{ Answers = @($false); Calls = 1; NewPath = '"C:\A;C:\B";C:\A' }
+        @{ Answers = @($true, $true); Calls = 2; NewPath = 'C:\A;C:\B' }
+    ) {
+        $fake = New-FakeCmdlet -Answers $Answers
+        $result = InModuleScope PathRepair -Parameters @{ Fake = $fake } {
+            param($Fake)
+            Mock Read-EnvironmentVariable { '"C:\A;C:\B";C:\A' }
+            Mock Test-PathDirectory { @('C:\A', 'C:\B') -contains $Path }
+            $plan = Invoke-PathRepairCore -FixTypes Duplicates, NonExistentPaths
+            @($plan.Changes)[1].DuplicateOf | Should -Be 0
             Select-ApprovedPathChange -Cmdlet $Fake -Target 'User PATH' -Plan $plan
         }
         $fake.Calls.Count | Should -Be $Calls
