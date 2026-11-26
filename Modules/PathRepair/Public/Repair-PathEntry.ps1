@@ -14,7 +14,24 @@ function Repair-PathEntry {
         (the marker Restore-PathFromBackup checks), and writes the
         User PATH with exactly the approved changes. It writes nothing, and reports an
         error, when the User PATH changed in between or when the repair would leave it
-        empty. The Machine PATH is never read or changed.
+        with no non-blank entry. The Machine PATH is never read or changed.
+
+        The User PATH and BADPATH are read from HKCU\Environment as written, without
+        expanding %VAR% references, and written back with the registry value kind PATH had,
+        so a REG_EXPAND_SZ PATH keeps its kind and its %USERPROFILE%-style entries. In a
+        REG_EXPAND_SZ PATH only the directory checks expand them, for the check alone, and
+        an entry whose variable this process cannot expand is never removed as
+        non-existent. Duplicates compares entries as written, so %USERPROFILE%\bin and its
+        expanded form are both kept.
+
+        Windows does not expand %VAR% in a REG_SZ PATH, so there such an entry is checked
+        as written. It is never removed as non-existent (the expanded folder is what was
+        meant): it is kept, and a warning names it and suggests making PATH REG_EXPAND_SZ.
+        The value kind is never changed.
+
+        After a write, running programs are told about the change (a WM_SETTINGCHANGE
+        "Environment" broadcast). The write is already complete then, so a failed
+        broadcast is only a warning and the result still has Applied $true.
 
         Issue types:
         - UnbalancedQuotes: removes every double quote from an entry with an odd number
@@ -64,10 +81,8 @@ function Repair-PathEntry {
         remoting (WinRM) enabled on the target, and it repairs the User PATH of the
         account that connects.
 
-        Environment variables are read expanded and written as REG_SZ, on Windows
-        PowerShell 5.1 and PowerShell 7 alike, so %USERPROFILE%-style references in the
-        repaired User PATH and in BADPATH become fixed paths (the REG_EXPAND_SZ type is
-        lost). Tracked in issue #149.
+        On a remote computer the broadcast reaches only the remoting session, so the
+        user's own desktop sees the repaired PATH after the next sign-in.
 
         Known limitation: IncorrectSemicolons never matches. PATH is split first, so
         'C:\;dir' arrives as two entries, C:\ and dir, and the check sees each alone.
