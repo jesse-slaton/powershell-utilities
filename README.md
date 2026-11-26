@@ -42,6 +42,7 @@ powershell-utilities/
 | --- | --- | --- |
 | `MsiTools` | `Format-MsiLog` (alias `Colorize-MsiLog`), `Get-MsiFileInfo` (alias `Get-MSIProperties`) | `Modules/MyMsiLogColorizer.psm1`, `Scripts/FileSystem/Get-MSIFileInfo.ps1` |
 | `OfficeC2R` | `Get-OfficeC2RChannel` (alias `Get-Office365Channel`), `Get-OfficeC2RBitness` (alias `Get-OfficeClickToRunBitness`), `Get-Bitness` | `Scripts/Office/Get-Office365Channel.ps1`, `Scripts/Office/GetOffice365Channel-Package.ps1`, `Scripts/Office/GetOffice365Bitness.ps1`, `Scripts/Office/Get-Bitness.ps1` (all removed) |
+| `PathRepair` | `Get-MalformedPathEntry` (alias `Get-MalformedPathEntries`), `Restore-PathFromBackup` | `Scripts/System/Restore-PathFromBackup.ps1`; `Scripts/System/Get-MalformedPathEntries-Sensor.ps1` stays as a thin wrapper because a deployment tool runs it by path |
 
 Modules are not published to any gallery. Install by path: import the manifest from a clone,
 

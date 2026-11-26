@@ -1,111 +1,43 @@
 <#
 .SYNOPSIS
-    Analyzes the PATH environment variable for malformed entries.
+    Sensor: reports malformed PATH entries as pipe-delimited lines.
 
 .DESCRIPTION
-    This function checks the PATH environment variable for common issues, such as:
-    - Unbalanced quotes
-    - Incorrect semicolons after the drive letter
-    - Duplicate entries
-    - Blank or empty entries
-    - Non-existent directories
+    Thin wrapper around Get-MalformedPathEntry in the PathRepair module. Imports the module
+    from Modules/PathRepair beside this repository's Scripts folder and writes one line per
+    malformed entry of the current process PATH:
 
-    It provides suggestions for fixing each issue.
+        <Entry>|<Issue>|<SuggestedEntry>
+
+    Writes nothing when PATH has no malformed entries. When the module cannot be loaded, writes
+    the single line 'PathRepair module not found|Sensor error|<message>' and exits 1, so a
+    broken deployment is never read as a healthy PATH. Reads only; changes nothing. Kept at
+    this path because a deployment tool runs it by name (the -Sensor suffix); the logic and
+    its help live in the module (Get-Help Get-MalformedPathEntry -Full).
 
 .EXAMPLE
-    Get-MalformedPathEntries
-    Analyzes the current PATH variable and reports errors and suggested fixes.
+    .\Get-MalformedPathEntries-Sensor.ps1
 
-.EXAMPLE
-    $malformedEntries = Get-MalformedPathEntries
-    $malformedEntries | ForEach-Object { "$($_.Entry)|$($_.Issue)|$($_.SuggestedEntry)" }
-    Formats the output as pipe-delimited entries without spaces between the pipes.
+    Writes the malformed entries of the current PATH, one pipe-delimited line each.
 
+.NOTES
+    Needs the Modules/PathRepair folder deployed at ..\..\Modules\PathRepair relative to
+    this script, as it is in a clone of this repository.
 #>
+[CmdletBinding()]
+param ()
 
-function Get-MalformedPathEntries {
-    [CmdletBinding()]
-    param ()
-
-    try {
-        # Get the PATH variable as a raw string
-        $pathRaw = [System.Environment]::GetEnvironmentVariable('PATH')
-
-        if (-not $pathRaw) {
-            throw "The PATH environment variable is empty or not set."
-        }
-
-        # Remove leading/trailing semicolons and split on semicolons outside quotes
-        $pathRaw = $pathRaw.Trim(';')
-        $pathEntries = [regex]::Split($pathRaw, '(?<!")\;(?!")')
-
-        # Track seen entries to detect duplicates
-        $seenPaths = @{}
-        $results = @()
-
-        foreach ($entry in $pathEntries) {
-            $suggestedEntry = $entry
-            $issue = $null
-
-            # Check for unbalanced double-quotes (a single double-quote is present)
-            $quoteCount = ($entry -split '"').Count - 1
-            if ($quoteCount % 2 -ne 0) {
-                $suggestedEntry = $entry -replace '"', ''  # Suggest removing unbalanced quotes
-                $issue = 'Unbalanced double-quotes, suggest removal'
-            }
-
-            # Check for semicolon directly after the drive letter (e.g., C;\path)
-            if ($entry -match '^[A-Z]:\\;') {
-                # Attempt to fix the path and test if the corrected path exists
-                $correctedPath = $entry -replace ':\;', ':\'
-                if (Test-Path $correctedPath) {
-                    $suggestedEntry = $correctedPath
-                    $issue = 'Incorrect semicolon after drive letter, suggest valid path'
-                } else {
-                    $suggestedEntry = 'Delete'
-                    $issue = 'Incorrect semicolon after drive letter, no valid path found'
-                }
-            }
-
-            # Check for empty or blank entries
-            if ([string]::IsNullOrWhiteSpace($entry)) {
-                $issue = 'Empty or blank entry'
-                $suggestedEntry = 'Delete'
-            }
-
-            # Check for duplicates
-            if ($seenPaths.ContainsKey($entry)) {
-                $issue = 'Duplicate entry'
-                $suggestedEntry = 'Delete'
-            } else {
-                $seenPaths[$entry] = $true
-            }
-
-            # Check if the path exists
-            if (-not [System.IO.Directory]::Exists($entry.Trim('"')) -and $entry -notmatch '^[A-Z]:\\$') {
-                $issue = 'Non-existent directory'
-                $suggestedEntry = 'Delete'
-            }
-
-            # Collect the result if any issue was found
-            if ($issue) {
-                $results += [PSCustomObject]@{
-                    Entry          = $entry
-                    Issue          = $issue
-                    SuggestedEntry = $suggestedEntry
-                }
-            }
-        }
-
-        return $results
-
-    } catch {
-        Write-Error "An error occurred while analyzing the PATH variable: $_"
+# Empty stdout means a healthy PATH, so a failed import must still print a line.
+try {
+    if ([string]::IsNullOrEmpty($PSScriptRoot)) {
+        throw 'The script folder is unknown; run this sensor as a file, not as a script body.'
     }
+    Import-Module (Join-Path $PSScriptRoot '../../Modules/PathRepair/PathRepair.psd1') -Force -ErrorAction Stop
+} catch {
+    'PathRepair module not found|Sensor error|{0}' -f ($_.Exception.Message -replace '[\r\n|]+', ' ')
+    exit 1
 }
 
-# Execute the function and format the output as pipe-delimited without spaces
-$malformedEntries = Get-MalformedPathEntries
-$malformedEntries | ForEach-Object {
+Get-MalformedPathEntry | ForEach-Object {
     "$($_.Entry)|$($_.Issue)|$($_.SuggestedEntry)"
 }
