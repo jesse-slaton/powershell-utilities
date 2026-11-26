@@ -208,7 +208,7 @@ Describe 'Get-MalformedPathEntries-Sensor.ps1 wrapper' {
         $text -match "Join-Path \`$PSScriptRoot '(?<rel>[^']+)'" | Should -BeTrue
         $manifest = Join-Path (Split-Path -Parent $script) $Matches['rel']
         Test-Path -LiteralPath $manifest | Should -BeTrue
-        $text | Should -Match 'Get-MalformedPathEntry \|'
+        $text | Should -Match 'Get-MalformedPathEntry -ErrorAction Stop'
     }
 
     It 'prints one sensor-error line and exits 1 when the module cannot be imported' {
@@ -216,12 +216,23 @@ Describe 'Get-MalformedPathEntries-Sensor.ps1 wrapper' {
         $script = Join-Path $repoRoot 'Scripts/System/Get-MalformedPathEntries-Sensor.ps1'
         $ast = [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$null, [ref]$null)
         $try = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.TryStatementAst] }, $false))
-        $try.Count | Should -Be 1
+        $try.Count | Should -Be 2
         $body = $try[0].Body.Extent.Text
         $body | Should -Match 'IsNullOrEmpty\(\$PSScriptRoot\)'
         $body | Should -Match 'Import-Module .* -ErrorAction Stop'
         $catch = $try[0].CatchClauses[0].Body.Extent.Text
         $catch | Should -Match "'PathRepair module not found\|Sensor error\|\{0\}' -f"
         $catch | Should -Match '(?m)^\s*exit 1\s*$'
+    }
+
+    It 'prints one sensor-error line and exits 1 when PATH is empty' {
+        # Runs the real sensor in a child PowerShell whose own PATH is empty; the PATH of
+        # this process and of the machine are never touched.
+        $script = Join-Path $repoRoot 'Scripts/System/Get-MalformedPathEntries-Sensor.ps1'
+        $powershell = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+        $output = @(& $powershell -NoProfile -Command "`$env:PATH = ''; & '$script'; exit `$LASTEXITCODE" 2>$null)
+        $LASTEXITCODE | Should -Be 1
+        $output.Count | Should -Be 1
+        $output[0] | Should -Match '^PATH could not be analyzed\|Sensor error\|.*empty'
     }
 }

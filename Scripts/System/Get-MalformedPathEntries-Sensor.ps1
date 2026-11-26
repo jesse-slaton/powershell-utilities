@@ -11,7 +11,9 @@
 
     Writes nothing when PATH has no malformed entries. When the module cannot be loaded, writes
     the single line 'PathRepair module not found|Sensor error|<message>' and exits 1, so a
-    broken deployment is never read as a healthy PATH. Reads only; changes nothing. Kept at
+    broken deployment is never read as a healthy PATH. Likewise, when PATH cannot be analyzed
+    (for example it is empty), writes 'PATH could not be analyzed|Sensor error|<message>' and
+    exits 1. Reads only; changes nothing. Kept at
     this path because a deployment tool runs it by name (the -Sensor suffix); the logic and
     its help live in the module (Get-Help Get-MalformedPathEntry -Full).
 
@@ -38,6 +40,13 @@ try {
     exit 1
 }
 
-Get-MalformedPathEntry | ForEach-Object {
+# An empty PATH is reported as an error with no entries, which would also read as healthy.
+try {
+    $entries = @(Get-MalformedPathEntry -ErrorAction Stop)
+} catch {
+    'PATH could not be analyzed|Sensor error|{0}' -f ($_.Exception.Message -replace '[\r\n|]+', ' ')
+    exit 1
+}
+$entries | ForEach-Object {
     "$($_.Entry)|$($_.Issue)|$($_.SuggestedEntry)"
 }
