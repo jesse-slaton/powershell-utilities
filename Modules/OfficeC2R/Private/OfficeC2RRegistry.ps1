@@ -1,5 +1,6 @@
 # Every registry access in OfficeC2R goes through this file so tests can mock it (the
-# registry exists only on Windows). It opens the 64-bit view of HKLM, so the result is the
+# registry exists only on Windows): all reads through Get-OfficeC2RConfigurationValue, all
+# writes through Write-OfficeC2RConfigurationValue. It opens the 64-bit view of HKLM, so the result is the
 # same from 32-bit and 64-bit PowerShell on 64-bit Windows.
 
 function Get-OfficeC2RConfigurationValue {
@@ -50,6 +51,56 @@ function Get-OfficeC2RConfigurationValue {
                 $values[$valueName] = $key.GetValue($valueName)
             }
             $values
+        }
+        finally {
+            $key.Close()
+        }
+    }
+    finally {
+        $baseKey.Close()
+    }
+}
+
+function Write-OfficeC2RConfigurationValue {
+    <#
+    .SYNOPSIS
+        Writes a string value to the Office Click-to-Run Configuration registry key.
+
+    .DESCRIPTION
+        Opens (or creates) HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration in the
+        64-bit registry view and sets Name to Value as a REG_SZ string. Outputs nothing.
+        Any failure, such as access denied without administrator rights, is a terminating
+        error. Callers do the ShouldProcess check. Private to OfficeC2R.
+
+    .PARAMETER Name
+        The value name, such as UpdateChannel.
+
+    .PARAMETER Value
+        The string to store.
+
+    .EXAMPLE
+        Write-OfficeC2RConfigurationValue -Name UpdateChannel -Value 'http://officecdn.microsoft.com/pr/492350f6-3a01-4f97-b9c0-c7c6ddf67d60'
+
+    .NOTES
+        Windows only. Requires administrator rights (writes HKLM).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Name,
+
+        [Parameter(Mandatory)]
+        [string]$Value
+    )
+
+    # Without Stop, an UnauthorizedAccessException from CreateSubKey (no administrator
+    # rights) is only statement-terminating and the caller would go on to run the update.
+    $ErrorActionPreference = 'Stop'
+    $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $key = $baseKey.CreateSubKey('SOFTWARE\Microsoft\Office\ClickToRun\Configuration')
+        try {
+            $key.SetValue($Name, $Value, [Microsoft.Win32.RegistryValueKind]::String)
         }
         finally {
             $key.Close()
