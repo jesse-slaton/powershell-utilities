@@ -302,9 +302,11 @@ Describe 'Repair-PathEntry' {
         @{ Path = 'C:\A;"C:\A;C:\B"'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds several entries, duplicates dropped' }
         @{ Path = '"C:\A;C:\B";C:\A'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds several entries|Duplicate entry' }
         @{ Path = 'C:\A;"C:\A;C:\A";C:\B'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds only duplicate entries' }
+        @{ Path = '"C:\A;C:\B";"C:\A;C:\B"'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds several entries|Quoted span holds only duplicate entries' }
+        @{ Path = '"C:\A;C:\B";"C:\B;C:\C"'; NewPath = 'C:\A;C:\B;C:\C'; Reasons = 'Quoted span holds several entries|Quoted span holds several entries, duplicates dropped' }
     ) {
         Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { $Path }
-        Mock Test-PathDirectory -ModuleName PathRepair { @('C:\A', 'C:\B') -contains $Path }
+        Mock Test-PathDirectory -ModuleName PathRepair { @('C:\A', 'C:\B', 'C:\C') -contains $Path }
         $result = Repair-PathEntry -Confirm:$false
         $result.NewPath | Should -BeExactly $NewPath
         @($result.Changes | ForEach-Object { $_.Reason }) -join '|' | Should -Be $Reasons
@@ -429,6 +431,27 @@ Describe 'Select-ApprovedPathChange' {
             Select-ApprovedPathChange -Cmdlet $Fake -Target 'User PATH' -Plan $plan
         }
         $fake.Calls.Count | Should -Be $Calls
+        $result.NewPath | Should -BeExactly $NewPath
+    }
+
+    It 'keeps the parts a declined span would have supplied when a later span repeats them: <Path>' -ForEach @(
+        @{ Path = '"C:\A;C:\B";"C:\A;C:\B"'; Answers = @($false, $true); NewPath = '"C:\A;C:\B";C:\A;C:\B'
+            Second = "Replace entry '`"C:\A;C:\B`"' with 'C:\A;C:\B' (Quoted span holds several entries)" }
+        @{ Path = '"C:\A;C:\B";"C:\B;C:\C"'; Answers = @($false, $true); NewPath = '"C:\A;C:\B";C:\B;C:\C'
+            Second = "Replace entry '`"C:\B;C:\C`"' with 'C:\B;C:\C' (Quoted span holds several entries)" }
+        @{ Path = '"C:\A;C:\B";"C:\B;C:\C"'; Answers = @($true, $true); NewPath = 'C:\A;C:\B;C:\C'
+            Second = "Replace entry '`"C:\B;C:\C`"' with 'C:\C' (Quoted span holds several entries, duplicates dropped)" }
+    ) {
+        $fake = New-FakeCmdlet -Answers $Answers
+        $result = InModuleScope PathRepair -Parameters @{ Fake = $fake; Path = $Path } {
+            param($Fake, $Path)
+            Mock Read-EnvironmentVariable { $Path }
+            Mock Test-PathDirectory { @('C:\A', 'C:\B', 'C:\C') -contains $Path }
+            $plan = Invoke-PathRepairCore -FixTypes Duplicates, NonExistentPaths
+            Select-ApprovedPathChange -Cmdlet $Fake -Target 'User PATH' -Plan $plan
+        }
+        $fake.Calls.Count | Should -Be 2
+        $fake.Calls[1] | Should -BeExactly "User PATH|$Second"
         $result.NewPath | Should -BeExactly $NewPath
     }
 
