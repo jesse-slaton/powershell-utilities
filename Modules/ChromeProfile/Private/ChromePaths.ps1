@@ -49,3 +49,48 @@ function Get-ChromeDefaultBackupFolder {
 
     Join-Path $env:USERPROFILE 'ChromeBackup'
 }
+
+function Resolve-ChromeFileSystemPath {
+    <#
+    .SYNOPSIS
+        Resolves a path to an absolute file-system path, refusing any other PowerShell provider.
+
+    .DESCRIPTION
+        Uses the calling cmdlet's GetUnresolvedProviderPathFromPSPath, which takes the path
+        literally (no wildcards) and resolves a relative path against the PowerShell location.
+        Throws when the path belongs to a provider other than FileSystem (for example Variable:\
+        or HKCU:\), whose provider-internal path .NET would otherwise resolve against the
+        process working directory.
+
+    .PARAMETER Path
+        The path to resolve.
+
+    .PARAMETER Cmdlet
+        The calling cmdlet's $PSCmdlet.
+
+    .EXAMPLE
+        Resolve-ChromeFileSystemPath -Path '.\Backup' -Cmdlet $PSCmdlet
+
+        Returns the absolute path of .\Backup.
+
+    .NOTES
+        Internal to the ChromeProfile module; not exported.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [System.Management.Automation.PSCmdlet]$Cmdlet
+    )
+
+    $provider = $null
+    $drive = $null
+    $resolved = $Cmdlet.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path, [ref]$provider, [ref]$drive)
+    if ($provider.Name -ne 'FileSystem') {
+        throw "'$Path' is not a file-system path (provider $($provider.Name))"
+    }
+    $resolved
+}
