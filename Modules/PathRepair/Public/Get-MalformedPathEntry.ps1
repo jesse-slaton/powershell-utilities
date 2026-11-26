@@ -85,7 +85,8 @@ function Get-MalformedPathEntry {
             $seenPaths[$entry] = $true
         }
 
-        if ($entry -notmatch '^[A-Z]:\\$' -and -not (Test-PathDirectory -Path $entry)) {
+        # A drive root, with or without a balanced pair of quotes. -notmatch ignores case.
+        if ($entry -notmatch '^("?)[A-Z]:\\\1$' -and -not (Test-PathDirectory -Path $entry)) {
             $issue = 'Non-existent directory'
             $suggestedEntry = 'Delete'
             if ($entry -match '^"(?=[^"]*[^";\s])[^"]*;[^"]*"$') {

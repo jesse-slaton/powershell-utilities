@@ -42,6 +42,12 @@ Describe 'Get-MalformedPathEntry' {
         }
     }
 
+    It 'never reports a drive root in either case or in quotes, even when the drive is missing' {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair { 'c:\;D:\;"E:\";"f:\"' }
+        Mock Test-PathDirectory -ModuleName PathRepair { $false }
+        Get-MalformedPathEntry | Should -BeNullOrEmpty
+    }
+
     It 'splits on semicolons next to a quoted entry, reporting only the missing one' -ForEach @(
         @{ Path = 'C:\Good;"C:\Good2";C:\Missing'; Count = 3 }
         @{ Path = '"C:\Good";"C:\Missing"'; Count = 2 }
