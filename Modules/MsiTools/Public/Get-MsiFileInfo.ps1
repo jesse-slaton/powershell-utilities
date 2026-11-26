@@ -129,11 +129,17 @@ function Get-MsiFileInfo {
             }
             Finally {
                 # Close the view and release every COM object now, so the .msi file handle is
-                # freed here rather than whenever the garbage collector runs.
-                if ($null -ne $View) {
-                    $null = Invoke-MsiComMember -Target $View -Name Close
+                # freed here rather than whenever the garbage collector runs. A failed Close is
+                # reported, and the objects are still released (Record, View, then Database).
+                try {
+                    if ($null -ne $View) {
+                        $null = Invoke-MsiComMember -Target $View -Name Close
+                    }
+                } catch {
+                    Write-Error -Message ("Failed to close the MSI view for {0}: {1}" -f $File, $_.Exception.Message) -TargetObject $File
+                } finally {
+                    foreach ($ComObject in $Record, $View, $MSIDatabase) { Close-MsiComObject -InputObject $ComObject }
                 }
-                foreach ($ComObject in $Record, $View, $MSIDatabase) { Close-MsiComObject -InputObject $ComObject }
             }
         }
     }

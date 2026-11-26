@@ -23,7 +23,8 @@ pwsh -NoProfile -c '. ./Tests/Install-TestDependencies.ps1; Invoke-Pester ./Test
 
 Windows-only commands (`Get-CimInstance`, `Get-WinEvent`, the BitLocker and ActiveDirectory
 cmdlets) do not exist there, so a behavior test stubs them with `Register-CommandStub` before
-mocking them (below). A test that needs real Windows behavior, not a mock, uses `-Skip` with a reason.
+mocking them (below). A test that needs real Windows behavior, not a mock, goes in its own `Describe`
+with `-Skip:(-not $script:onWindows)`, set in `BeforeDiscovery` as described in the root README.
 
 ### Pre-push gate
 
@@ -61,11 +62,16 @@ informational step; the comment at the top of the settings file shows the local 
 | File | Purpose |
 | --- | --- |
 | `Smoke.Tests.ps1` | For every tracked `.ps1`/`.psm1` under `Scripts/` and `Modules/`: parses with no syntax errors, and has no PSScriptAnalyzer `Error`-severity findings. The file list comes from `git ls-files`, so new scripts are covered automatically. |
-| `Repository.Tests.ps1` | Fails when a `Tests/Unit/<Name>.Tests.ps1` has no matching script. |
+| `Repository.Tests.ps1` | Fails when a `Tests/Unit/<Name>.Tests.ps1` has no matching script or module, or when a file in `Tests/` is missing from this table. |
+| `Modules.Tests.ps1` | For every `Modules/<Name>/`: follows the module layout standard in the root README, passes `Test-ModuleManifest`, imports, and exports exactly what its manifest declares. |
+| `Encoding.Tests.ps1` | Every tracked `.ps1`, `.psm1` and `.psd1` is valid UTF-8 (never UTF-16), with a BOM when it holds non-ASCII text, and has no stray control characters. Reads bytes only. |
+| `Analyze-HelpCoverage.Tests.ps1` | Tests for the root `Analyze-HelpCoverage.ps1` help-coverage report, against fixture scripts written to `$TestDrive` and only parsed. |
+| `Install-TestDependencies.ps1` | Installs and imports the pinned Pester and PSScriptAnalyzer versions (see Running). |
+| `Install-TestDependencies.Tests.ps1` | Tests for the installer, with the install commands mocked. |
 | `TestHelpers.psm1` | Shared helpers: `Resolve-ScriptUnderTest`, `Get-ScriptFunctionDefinition`, `Register-CommandStub`, `Remove-CommandStub`, `Get-TrackedScript`. |
 | `TestHelpers.Tests.ps1` | Self-tests for the helpers, including proof that coverage of AST-loaded functions maps to the original file and lines. |
 | `Fixtures/` | Sample scripts the self-tests load. Never run them. |
-| `Unit/<Name>.Tests.ps1` | Behavior tests for one script, named after it. |
+| `Unit/<Name>.Tests.ps1` | Behavior tests for one script or module, named after it (`Unit/MsiTools.Tests.ps1` covers `Modules/MsiTools`). |
 
 ## Writing a behavior test
 
@@ -129,4 +135,6 @@ Rules:
 
 - Mock every registry, CIM/WMI, network, service and process call. Confine file effects to `$TestDrive`.
 - A test that is not written yet is marked pending with `Set-ItResult -Pending -Because '...'`, never `$true | Should -Be $true`.
-- Tests that need a vendor agent or Windows-only COM class use `-Skip` with a reason.
+- Tests that need a vendor agent or Windows-only COM class go in their own `Describe` with
+  `-Skip:(-not $script:onWindows)`, where `$script:onWindows = $env:OS -eq 'Windows_NT'` is set in
+  `BeforeDiscovery` (Pester 5 `-Skip` takes no reason; see the root README).
