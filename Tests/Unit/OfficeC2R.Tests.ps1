@@ -378,7 +378,8 @@ Describe 'GetOfficeVersion-Package.ps1 Import-OfficeC2RModule' {
         try { Import-OfficeC2RModule -ScriptRoot $root } catch { $message = "$_" }
         $message | Should -Match 'OfficeC2R module was not found'
         $message | Should -Match ([regex]::Escape((Join-Path (Join-Path $root 'OfficeC2R') 'OfficeC2R.psd1')))
-        $message | Should -Match 'Modules/OfficeC2R/OfficeC2R\.psd1'
+        # The script joins this path with Join-Path, so Windows shows backslashes.
+        $message | Should -Match 'Modules[\\/]OfficeC2R[\\/]OfficeC2R\.psd1'
         $message | Should -Match 'PSModulePath \(no module named OfficeC2R\)'
     }
 }
