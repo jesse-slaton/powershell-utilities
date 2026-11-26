@@ -98,7 +98,9 @@ Describe 'Get-AttachedMonitorInfo-Sensor.ps1' {
     It 'reports a computer that cannot be queried and goes on with the next one' {
         # Get-CimInstance reports an unreachable computer as a non-terminating error.
         Mock Get-CimInstance { Write-Error 'The WinRM client cannot process the request.' } -ParameterFilter { $ClassName -eq 'WMIMonitorID' -and $ComputerName -eq 'BAD01' }
-        $output = @('BAD01', 'PC02' | Invoke-MonitorScript -ManufacturerCsvPath $script:MissingCsv 2>&1)
+        # -ErrorAction Continue pins the default: a caller's Stop (GitHub Actions sets
+        # $ErrorActionPreference = 'Stop' for every pwsh/powershell step) makes the error terminating.
+        $output = @('BAD01', 'PC02' | Invoke-MonitorScript -ManufacturerCsvPath $script:MissingCsv -ErrorAction Continue 2>&1)
         $errors = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
         $objects = @($output | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
         $errors.Count | Should -Be 1
@@ -126,10 +128,17 @@ Describe 'Get-AttachedMonitorInfo-Sensor.ps1' {
 
     It 'still reports a WMI error other than NotSupported' {
         Mock Get-CimInstance { throw (New-Object TestCimLikeException 'AccessDenied', 'Access denied') } -ParameterFilter { $ClassName -eq 'WMIMonitorID' }
-        $output = @(Get-MonitorInfo -Computer 'PC01' 2>&1)
+        $output = @(Get-MonitorInfo -Computer 'PC01' -ErrorAction Continue 2>&1)
         $errors = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
         $errors.Count | Should -Be 1
         "$($errors[0])" | Should -BeLike 'Cannot read monitor data from PC01: Access denied'
+    }
+
+    It 'stops at the first failed computer when the caller asks for -ErrorAction Stop' {
+        # Standard PowerShell semantics, kept on purpose: Stop means stop at the first error.
+        Mock Get-CimInstance { Write-Error 'The WinRM client cannot process the request.' } -ParameterFilter { $ClassName -eq 'WMIMonitorID' -and $ComputerName -eq 'BAD01' }
+        { 'BAD01', 'PC02' | Invoke-MonitorScript -ManufacturerCsvPath $script:MissingCsv -ErrorAction Stop } | Should -Throw '*WinRM client cannot process*'
+        Should -Invoke Get-CimInstance -Times 0 -Exactly -ParameterFilter { $ClassName -eq 'WMIMonitorID' -and $ComputerName -eq 'PC02' }
     }
 
     It 'goes on with the next piped computer after a NotSupported one' {

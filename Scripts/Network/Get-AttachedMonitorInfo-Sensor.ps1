@@ -155,6 +155,8 @@ begin {
                 Write-Verbose "No monitor data on ${Computer}: WMI reports the monitor classes as not supported."
                 return
             }
+            #Non-terminating, so the other computers are still queried; a caller's -ErrorAction Stop
+            #makes it terminating and ends the run at this computer, as usual in PowerShell.
             Write-Error -Message "Cannot read monitor data from ${Computer}: $($_.Exception.Message)" `
                 -Exception $_.Exception -Category ReadError -TargetObject $Computer
             return
