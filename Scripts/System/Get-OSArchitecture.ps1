@@ -24,10 +24,9 @@ AddressWidth reports the width the operating system runs at, so a 32-bit Windows
 on a 64-bit processor reports x86. A 64-bit ARM system would also report AMD64,
 because only the address width is checked.
 
-If the CIM query fails, the script writes the error and then calls
-[Environment]::Exit with the exception's HResult. That ends the whole PowerShell
-process, not just the script, so do not dot-source or run it in a session you
-want to keep.
+If the CIM query fails, the function throws a terminating error. It ends the
+script, not the PowerShell session; run with powershell.exe -File, the process
+exit code is 1.
 #>
 
 
@@ -67,8 +66,9 @@ function Get-OSArchitecture {
             }
         }    
         Catch {
-            Write-Error $_.Exception.Message
-            [Environment]::Exit($_.Exception.HResult)   
+            # Rethrow rather than [Environment]::Exit, which would end the whole
+            # PowerShell process (and the caller's session) instead of this script.
+            throw
         }
     }
 }
