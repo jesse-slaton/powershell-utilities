@@ -64,6 +64,11 @@ BeforeAll {
         Test-Path -LiteralPath (Join-Path $Path 'Empty Top') -PathType Container | Should -BeTrue -Because 'an empty folder directly in the profile must survive'
         if ($env:OS -eq 'Windows_NT') {
             Get-Content -LiteralPath (Join-Path $Path 'Level1/attr-hidden.txt') | Should -Be 'attr'
+            # The help promises hidden items come back as ordinary items: a zip does not carry the attribute.
+            foreach ($relative in '.hidden-file', '.hidden-dir', 'Level1/attr-hidden.txt') {
+                $attributes = (Get-Item -LiteralPath (Join-Path $Path $relative) -Force).Attributes
+                ($attributes -band [System.IO.FileAttributes]::Hidden) | Should -Be 0 -Because "$relative is restored as an ordinary item"
+            }
         }
     }
 
