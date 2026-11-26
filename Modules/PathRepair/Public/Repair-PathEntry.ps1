@@ -8,12 +8,12 @@ function Repair-PathEntry {
         selected issue types, and asks ShouldProcess about each change, so -WhatIf lists
         every change without writing anything and -Confirm (or -Prompt) asks about each
         one. A declined change leaves that entry as it is. When at least one change is
-        approved, re-reads the User PATH and, only if it is unchanged since the preview,
-        saves it to the User-scope BADPATH variable (undo with Restore-PathFromBackup),
+        approved, re-reads the User PATH and, only if its text and its registry value kind
+        are both unchanged since the preview, saves it to the User-scope BADPATH variable (undo with Restore-PathFromBackup),
         sets PATH_FIX_DATE to the current time and BADPATH_SCOPE to User|<that time>
         (the marker Restore-PathFromBackup checks), and writes the
         User PATH with exactly the approved changes. It writes nothing, and reports an
-        error, when the User PATH changed in between or when the repair would leave it
+        error, when the User PATH text or value kind changed in between or when the repair would leave it
         with no non-blank entry. The Machine PATH is never read or changed.
 
         The User PATH and BADPATH are read from HKCU\Environment as written, without
@@ -132,7 +132,7 @@ function Repair-PathEntry {
     $applied = $changes.Count -gt 0
     if ($applied) {
         try {
-            $null = Invoke-PathRepairTarget @targetParams -Apply -OriginalPath $preview.OriginalPath -NewPath $newPath
+            $null = Invoke-PathRepairTarget @targetParams -Apply -OriginalPath $preview.OriginalPath -OriginalKind $preview.OriginalKind -NewPath $newPath
         } catch {
             Write-Error "An error occurred while processing the $target`: $($_.Exception.Message)"
             return

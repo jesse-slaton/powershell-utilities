@@ -89,7 +89,24 @@ Describe 'Get-MalformedPathEntry' {
             $result[0].Entry | Should -BeExactly "%$varName%\tools"
             $result[0].Issue | Should -Be 'REG_SZ PATH: %VAR% is not expanded by Windows, suggest REG_EXPAND_SZ'
             $result[0].SuggestedEntry | Should -BeExactly "%$varName%\tools"
-            Should -Invoke Test-PathDirectory -ModuleName PathRepair -Times 1 -Exactly -ParameterFilter { $Path -eq "%$varName%\tools" -and $Literal }
+            # Reported before, and without, the existence check.
+            Should -Invoke Test-PathDirectory -ModuleName PathRepair -Times 0 -Exactly -ParameterFilter { $Path -eq "%$varName%\tools" }
+        } finally {
+            [System.Environment]::SetEnvironmentVariable($varName, $null, 'Process')
+        }
+    }
+
+    It 'reports a later copy of an unexpanded %VAR% entry as a duplicate, the first copy as unexpanded' {
+        $varName = 'PATHREPAIR_TEST_{0}' -f [guid]::NewGuid().ToString('N')
+        [System.Environment]::SetEnvironmentVariable($varName, 'C:\Good', 'Process')
+        try {
+            Mock Read-EnvironmentVariable -ModuleName PathRepair { "%$varName%\tools;C:\Good;%$varName%\tools" }
+            $result = @(Get-MalformedPathEntry)
+            $result.Count | Should -Be 2
+            $result[0].Issue | Should -Be 'REG_SZ PATH: %VAR% is not expanded by Windows, suggest REG_EXPAND_SZ'
+            $result[0].SuggestedEntry | Should -BeExactly "%$varName%\tools"
+            $result[1].Issue | Should -Be 'Duplicate entry'
+            $result[1].SuggestedEntry | Should -Be 'Delete'
         } finally {
             [System.Environment]::SetEnvironmentVariable($varName, $null, 'Process')
         }
@@ -113,6 +130,31 @@ Describe 'Get-MalformedPathEntry' {
     It 'still answers to the Get-MalformedPathEntries alias' {
         Mock Read-EnvironmentVariable -ModuleName PathRepair { 'C:\Good;C:\Missing' }
         @(Get-MalformedPathEntries).Count | Should -Be 1
+    }
+}
+
+Describe 'Get-MalformedPathEntry, with real directory checks' {
+    It 'reports an unexpanded %VAR% entry even when a directory with that literal name exists' {
+        $varName = 'PATHREPAIR_TEST_{0}' -f [guid]::NewGuid().ToString('N')
+        # Test-PathDirectory uses [System.IO.Directory]::Exists, which resolves a relative
+        # path against the process working directory, not the PowerShell location, so the
+        # entry is absolute: TestDrive\%VAR%\x, with that literal folder created.
+        $entry = [System.IO.Path]::Combine($TestDrive, "%$varName%", 'x')
+        New-Item -Path $entry -ItemType Directory -Force | Out-Null
+        [System.Environment]::SetEnvironmentVariable($varName, (Join-Path $TestDrive 'expanded'), 'Process')
+        Push-Location $TestDrive
+        try {
+            Mock Read-EnvironmentVariable -ModuleName PathRepair { "$TestDrive;$entry" }
+            InModuleScope PathRepair -Parameters @{ Entry = $entry } { param($Entry) Test-PathDirectory -Path $Entry -Literal | Should -BeTrue }
+            $result = @(Get-MalformedPathEntry)
+            $result.Count | Should -Be 1
+            $result[0].Entry | Should -BeExactly $entry
+            $result[0].Issue | Should -Be 'REG_SZ PATH: %VAR% is not expanded by Windows, suggest REG_EXPAND_SZ'
+            $result[0].SuggestedEntry | Should -BeExactly $entry
+        } finally {
+            Pop-Location
+            [System.Environment]::SetEnvironmentVariable($varName, $null, 'Process')
+        }
     }
 }
 
@@ -429,6 +471,26 @@ try {
         Should -Invoke Write-UserEnvironmentValue -ModuleName PathRepair -Times 0 -Exactly
     }
 
+    It 'writes nothing when the User PATH value kind changed from <From> to <To> with the same text' -ForEach @(
+        @{ From = 'String'; To = 'ExpandString' }
+        @{ From = 'ExpandString'; To = 'String' }
+    ) {
+        $script:reads = 0
+        Mock Read-UserEnvironmentValue -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } {
+            $script:reads++
+            $kind = if ($script:reads -eq 1) { $From } else { $To }
+            [pscustomobject]@{ Value = 'C:\Good;%USERPROFILE%\bin;C:\Missing'; Kind = $kind }
+        }
+        $result = Repair-PathEntry -FixTypes NonExistentPaths -Confirm:$false -ErrorVariable err -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        $result | Should -BeNullOrEmpty
+        $script:reads | Should -Be 2
+        "$err" | Should -Match "User PATH changed since the preview \(its value kind is now $To, not $From\); nothing written"
+        # Not BADPATH, BADPATH_SCOPE, PATH_FIX_DATE or PATH.
+        $script:writes | Should -BeNullOrEmpty
+        Should -Invoke Write-UserEnvironmentValue -ModuleName PathRepair -Times 0 -Exactly
+        Should -Invoke Send-EnvironmentChange -ModuleName PathRepair -Times 0 -Exactly
+    }
+
     It 'never removes a drive root in either case or in quotes, even when the drive is missing' {
         Mock Read-UserEnvironmentValue -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { [pscustomobject]@{ Value = 'C:\Keep;c:\;D:\;"E:\";"f:\"'; Kind = 'String' } }
         Mock Test-PathDirectory -ModuleName PathRepair { $Path -eq 'C:\Keep' }
@@ -646,7 +708,7 @@ Describe 'Repair-PathEntry -ComputerName' {
         Mock Invoke-Command -ModuleName PathRepair {
             if (-not $ArgumentList[0]) {
                 [pscustomobject]@{
-                    ComputerName = 'PC01'; OriginalPath = 'C:\Missing;C:\Good'; Entries = @('C:\Missing', 'C:\Good'); NewPath = 'C:\Good'
+                    ComputerName = 'PC01'; OriginalPath = 'C:\Missing;C:\Good'; OriginalKind = 'ExpandString'; Entries = @('C:\Missing', 'C:\Good'); NewPath = 'C:\Good'
                     Changes = @([pscustomobject]@{ Index = 0; Entry = 'C:\Missing'; NewEntry = $null; Reason = 'Non-existent directory' })
                     Applied = $false
                 }
@@ -663,14 +725,15 @@ Describe 'Repair-PathEntry -ComputerName' {
             $ComputerName -eq 'PC01' -and $null -eq $Credential -and @($ArgumentList[1]) -join ',' -eq 'NonExistentPaths'
         }
         Should -Invoke Invoke-Command -ModuleName PathRepair -Times 1 -Exactly -ParameterFilter {
-            $ArgumentList[0] -eq $true -and $ArgumentList[2] -eq 'C:\Missing;C:\Good' -and $ArgumentList[3] -eq 'C:\Good'
+            $ArgumentList[0] -eq $true -and $ArgumentList[2] -eq 'C:\Missing;C:\Good' -and $ArgumentList[3] -eq 'C:\Good' -and
+                $ArgumentList[4] -ceq 'ExpandString'
         }
     }
 
     It 'passes several -FixTypes to the remote computer as one argument' {
         $null = Repair-PathEntry -ComputerName PC01 -FixTypes Duplicates, NonExistentPaths -Confirm:$false
         Should -Invoke Invoke-Command -ModuleName PathRepair -Times 2 -Exactly -ParameterFilter {
-            $ArgumentList.Count -eq 4 -and @($ArgumentList[1]) -join ',' -eq 'Duplicates,NonExistentPaths'
+            $ArgumentList.Count -eq 5 -and @($ArgumentList[1]) -join ',' -eq 'Duplicates,NonExistentPaths'
         }
         Should -Invoke Invoke-Command -ModuleName PathRepair -Times 1 -Exactly -ParameterFilter {
             $ArgumentList[0] -eq $true -and $ArgumentList[2] -eq 'C:\Missing;C:\Good' -and $ArgumentList[3] -eq 'C:\Good'
@@ -696,10 +759,12 @@ Describe 'Repair-PathEntry -ComputerName' {
             "$block" | Should -Match ('(?m)^function {0} \{{' -f $name)
         }
         "$block" | Should -Match 'Invoke-PathRepairCore -FixTypes \$FixTypes -SkipUnc \$true'
+        "$block" | Should -Match '\[string\]\$NewPath, \[string\]\$OriginalKind\)'
+        "$block" | Should -Match 'Write-RepairedPath -OriginalPath \$OriginalPath -OriginalKind \$OriginalKind -NewPath \$NewPath'
         # Run it, read-only (Apply is $false), in a fresh runspace that has no PathRepair module.
         $ps = [powershell]::Create()
         try {
-            $null = $ps.AddScript("$block").AddArgument($false).AddArgument([string[]]@('Duplicates')).AddArgument('').AddArgument('')
+            $null = $ps.AddScript("$block").AddArgument($false).AddArgument([string[]]@('Duplicates')).AddArgument('').AddArgument('').AddArgument('')
             $failure = $null
             try { $output = @($ps.Invoke()) } catch { $failure = $_.Exception.InnerException }
             # Off Windows there is no User scope, so the core's registry read throws.
@@ -751,7 +816,7 @@ Describe 'Write-RepairedPath' {
             Mock Read-UserEnvironmentValue { [pscustomobject]@{ Value = 'C:\Missing;;'; Kind = 'String' } }
             Mock Write-UserEnvironmentValue
             Mock Send-EnvironmentChange
-            { Write-RepairedPath -OriginalPath 'C:\Missing;;' -NewPath $NewPath } | Should -Throw '*would remove every User PATH entry*'
+            { Write-RepairedPath -OriginalPath 'C:\Missing;;' -OriginalKind String -NewPath $NewPath } | Should -Throw '*would remove every User PATH entry*'
             Should -Invoke Write-UserEnvironmentValue -Times 0 -Exactly
         }
     }
@@ -768,8 +833,42 @@ Describe 'Write-RepairedPath' {
             $plan = Invoke-PathRepairCore -FixTypes BlankEntries, NonExistentPaths
             $selection = Select-ApprovedPathChange -Cmdlet $Fake -Target 'User PATH' -Plan $plan
             $selection.NewPath | Should -BeExactly ';'
-            { Write-RepairedPath -OriginalPath $plan.OriginalPath -NewPath $selection.NewPath } | Should -Throw '*would remove every User PATH entry*'
+            $plan.OriginalKind | Should -BeExactly 'String'
+            { Write-RepairedPath -OriginalPath $plan.OriginalPath -OriginalKind $plan.OriginalKind -NewPath $selection.NewPath } | Should -Throw '*would remove every User PATH entry*'
             Should -Invoke Write-UserEnvironmentValue -Times 0 -Exactly
+        }
+    }
+
+    It 'refuses, writing nothing, when the kind is now <Now> but the preview saw <Previewed>, even with the same text' -ForEach @(
+        @{ Previewed = 'String'; Now = 'ExpandString' }
+        @{ Previewed = 'ExpandString'; Now = 'String' }
+    ) {
+        InModuleScope PathRepair -Parameters @{ Previewed = $Previewed; Now = $Now } {
+            param($Previewed, $Now)
+            Mock Read-UserEnvironmentValue { [pscustomobject]@{ Value = '%USERPROFILE%\bin;C:\Bin;C:\Bin'; Kind = $Now } }
+            Mock Write-UserEnvironmentValue
+            Mock Send-EnvironmentChange
+            { Write-RepairedPath -OriginalPath '%USERPROFILE%\bin;C:\Bin;C:\Bin' -OriginalKind $Previewed -NewPath '%USERPROFILE%\bin;C:\Bin' } |
+                Should -Throw "*changed since the preview (its value kind is now $Now, not $Previewed); nothing written*"
+            Should -Invoke Write-UserEnvironmentValue -Times 0 -Exactly
+            Should -Invoke Send-EnvironmentChange -Times 0 -Exactly
+        }
+    }
+
+    It 'writes BADPATH, BADPATH_SCOPE, PATH_FIX_DATE and PATH when text and kind (<Kind>) are unchanged' -ForEach @(
+        @{ Kind = 'String' }
+        @{ Kind = 'ExpandString' }
+    ) {
+        InModuleScope PathRepair -Parameters @{ Kind = $Kind } {
+            param($Kind)
+            $script:written = New-Object System.Collections.Generic.List[string]
+            Mock Read-UserEnvironmentValue { [pscustomobject]@{ Value = '%USERPROFILE%\bin;C:\Bin;C:\Bin'; Kind = $Kind } }
+            Mock Write-UserEnvironmentValue { $script:written.Add("$Name [$Kind]") }
+            Mock Send-EnvironmentChange
+            Write-RepairedPath -OriginalPath '%USERPROFILE%\bin;C:\Bin;C:\Bin' -OriginalKind $Kind -NewPath '%USERPROFILE%\bin;C:\Bin'
+            $script:written -join ',' | Should -BeExactly "BADPATH [$Kind],BADPATH_SCOPE [String],PATH_FIX_DATE [String],PATH [$Kind]"
+            Should -Invoke Write-UserEnvironmentValue -Times 1 -Exactly -ParameterFilter { $Name -eq 'PATH' -and $Value -ceq '%USERPROFILE%\bin;C:\Bin' }
+            Should -Invoke Send-EnvironmentChange -Times 1 -Exactly
         }
     }
 }

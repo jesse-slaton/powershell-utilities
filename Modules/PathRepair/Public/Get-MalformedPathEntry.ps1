@@ -16,11 +16,14 @@ function Get-MalformedPathEntry {
         - A %VAR% reference that this process can expand but Windows did not: the process
           PATH is already expanded, so it came from a REG_SZ PATH, where Windows does not
           expand %VAR%. Reported with SuggestedEntry the entry unchanged, since the fix is
-          to make that PATH REG_EXPAND_SZ. An entry whose variable is not set is checked
-          as written, like any other
+          to make that PATH REG_EXPAND_SZ, even when a folder with the literal %VAR% name
+          exists (it is never checked for existence). An entry whose variable is not set
+          is checked as written, like any other
 
         Outputs one object per malformed entry with Entry, Issue and SuggestedEntry
-        properties. When an entry has several issues, the last check that matched wins.
+        properties. When an entry has several issues, the last check that matched wins,
+        in the order listed above, except that a duplicate copy of an unexpanded %VAR%
+        entry stays a Duplicate entry (Delete): the first copy carries the %VAR% report.
         SuggestedEntry is either a corrected entry or the word Delete. Reads only;
         changes nothing.
 
@@ -83,7 +86,8 @@ function Get-MalformedPathEntry {
             $suggestedEntry = 'Delete'
         }
 
-        if ($seenPaths.ContainsKey($entry)) {
+        $duplicate = $seenPaths.ContainsKey($entry)
+        if ($duplicate) {
             $issue = 'Duplicate entry'
             $suggestedEntry = 'Delete'
         } else {
@@ -91,20 +95,23 @@ function Get-MalformedPathEntry {
         }
 
         # The process PATH is already expanded, so a %VAR% left in it was never expanded by
-        # Windows (a REG_SZ PATH), and every entry is checked as written.
+        # Windows (a REG_SZ PATH). That is reported whether or not a folder of that literal
+        # name exists, since the user means the expanded folder; a duplicate copy keeps its
+        # Delete suggestion (the first copy carries this report). Every other entry is
+        # checked as written.
         $unexpanded = $entry -match '%[^%;]+%' -and [System.Environment]::ExpandEnvironmentVariables($entry) -cne $entry
-        # A drive root, with or without a balanced pair of quotes. -notmatch ignores case.
-        if ($entry -notmatch '^("?)[A-Z]:\\\1$' -and -not (Test-PathDirectory -Path $entry -Literal)) {
-            if ($unexpanded) {
+        if ($unexpanded) {
+            if (-not $duplicate) {
                 $issue = 'REG_SZ PATH: %VAR% is not expanded by Windows, suggest REG_EXPAND_SZ'
                 $suggestedEntry = $entry
-            } else {
-                $issue = 'Non-existent directory'
-                $suggestedEntry = 'Delete'
-                if ($entry -match '^"(?=[^"]*[^";\s])[^"]*;[^"]*"$') {
-                    $issue = 'Quoted span holds several entries, suggest removing the quotes'
-                    $suggestedEntry = @($entry.Trim('"') -split ';' | Where-Object { $_.Trim() }) -join ';'
-                }
+            }
+        } elseif ($entry -notmatch '^("?)[A-Z]:\\\1$' -and -not (Test-PathDirectory -Path $entry -Literal)) {
+            # A drive root, with or without a balanced pair of quotes, is exempt. -notmatch ignores case.
+            $issue = 'Non-existent directory'
+            $suggestedEntry = 'Delete'
+            if ($entry -match '^"(?=[^"]*[^";\s])[^"]*;[^"]*"$') {
+                $issue = 'Quoted span holds several entries, suggest removing the quotes'
+                $suggestedEntry = @($entry.Trim('"') -split ';' | Where-Object { $_.Trim() }) -join ';'
             }
         }
 
