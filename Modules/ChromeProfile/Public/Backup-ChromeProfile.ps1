@@ -60,15 +60,23 @@ function Backup-ChromeProfile {
         return
     }
 
+    # Resolve to a literal file-system path: '[' and ']' in a folder name must never be read as a
+    # wildcard pattern that matches a different folder.
+    $Destination = $PSCmdlet.GetUnresolvedProviderPathFromPSPath($Destination)
     $zipFile = Join-Path $Destination 'ChromeProfileBackup.zip'
     # Write a sibling temp zip (Compress-Archive on 5.1 needs the .zip extension) and swap it in
     # only on success, so a failed backup never destroys the previous good one.
     $tempZip = Join-Path $Destination 'ChromeProfileBackup.partial.zip'
     try {
-        $null = New-Item -ItemType Directory -Path $Destination -Force -ErrorAction Stop
+        # New-Item has no -LiteralPath; the .NET call takes the path as it is.
+        $null = [System.IO.Directory]::CreateDirectory($Destination)
+        # A temp zip left by an interrupted run is removed here, so Compress-Archive always writes a
+        # new file: its replace-existing branch reads the path as a wildcard pattern.
+        if (Test-Path -LiteralPath $tempZip) { Remove-Item -LiteralPath $tempZip -Force -ErrorAction Stop }
         # Wildcard the contents so the zip root is the profile itself, not a folder named after it.
         $source = Join-Path ([System.Management.Automation.WildcardPattern]::Escape($ProfilePath)) '*'
-        $null = Compress-Archive -Path $source -DestinationPath $tempZip -Force -ErrorAction Stop
+        # -DestinationPath has no literal form; Compress-Archive unescapes it to a provider path first.
+        $null = Compress-Archive -Path $source -DestinationPath ([System.Management.Automation.WildcardPattern]::Escape($tempZip)) -ErrorAction Stop
         Move-Item -LiteralPath $tempZip -Destination $zipFile -Force -ErrorAction Stop
         Get-Item -LiteralPath $zipFile
     }

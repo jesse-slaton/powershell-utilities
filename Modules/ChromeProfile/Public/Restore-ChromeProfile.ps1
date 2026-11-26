@@ -53,6 +53,9 @@ function Restore-ChromeProfile {
 
     if (-not $Path) { $Path = Get-ChromeDefaultBackupFolder }
     if (-not $ProfilePath) { $ProfilePath = Get-ChromeDefaultProfilePath }
+    # Resolve to a literal file-system path: '[' and ']' in a profile name (for example
+    # 'Profile [1]') must never be read as a wildcard pattern that matches another profile.
+    $ProfilePath = $PSCmdlet.GetUnresolvedProviderPathFromPSPath($ProfilePath)
 
     if (Test-Path -LiteralPath $ProfilePath) {
         Write-Warning "Chrome profile folder already exists, not restored: $ProfilePath"
@@ -85,7 +88,9 @@ function Restore-ChromeProfile {
         }
         if (-not $legacy) {
             Write-Verbose "Restoring Chrome profile $ProfilePath from $zipFile"
-            $null = Expand-Archive -LiteralPath $zipFile -DestinationPath $ProfilePath -ErrorAction Stop
+            # Expand-Archive has no literal -DestinationPath and resolves it as a wildcard pattern,
+            # so 'Profile [1]' could extract into an existing 'Profile 1'. ZipFile takes it as is.
+            [System.IO.Compression.ZipFile]::ExtractToDirectory((Resolve-Path -LiteralPath $zipFile).ProviderPath, $ProfilePath)
         }
     }
     catch {

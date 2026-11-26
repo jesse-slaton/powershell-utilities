@@ -80,6 +80,20 @@ Describe 'Backup-ChromeProfile' {
         Test-Path -LiteralPath (Join-Path $out 'Default') | Should -BeFalse -Because 'the zip holds the contents, not a folder named after the profile'
     }
 
+    It 'writes into a bracketed destination literally, never into a folder the brackets match as a wildcard' {
+        # 'Backup [1]' read as a wildcard pattern matches 'Backup 1'.
+        $decoy = Join-Path $root 'Backup 1'
+        $null = New-Item -ItemType Directory -Path $decoy -Force
+        $bracketed = Join-Path $root 'Backup [1]'
+
+        $result = Backup-ChromeProfile -Destination $bracketed -ProfilePath $chromeProfile -ErrorAction Stop
+
+        $literalZip = Join-Path $bracketed 'ChromeProfileBackup.zip'
+        $result.FullName | Should -Be (Get-Item -LiteralPath $literalZip).FullName
+        Test-Path -LiteralPath (Join-Path $bracketed 'ChromeProfileBackup.partial.zip') | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $decoy -Force) | Should -BeNullOrEmpty -Because 'the look-alike folder must stay untouched'
+    }
+
     It 'replaces an existing backup zip' {
         $null = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile
         Set-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') -Value 'second'
@@ -176,6 +190,23 @@ Describe 'Restore-ChromeProfile' {
         "$err" | Should -BeLike '*old ChromeProfileBackup.ps1*copy the contents of its ChromeProfileBackup folder*'
         (Get-FileHash -LiteralPath $zip).Hash | Should -Be $before
         Test-Path -LiteralPath $chromeProfile | Should -BeFalse
+    }
+
+    It 'restores into a bracketed profile path literally, never into a profile the brackets match as a wildcard' {
+        Initialize-FakeChromeProfile -Path $chromeProfile -Bookmarks 'saved'
+        $null = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorAction Stop
+        # 'Profile [1]' read as a wildcard pattern matches the existing 'Profile 1'.
+        $decoy = Join-Path $root 'User Data/Profile 1'
+        $null = New-Item -ItemType Directory -Path $decoy -Force
+        $bracketed = Join-Path $root 'User Data/Profile [1]'
+
+        $result = Restore-ChromeProfile -Path $backup -ProfilePath $bracketed -ErrorAction Stop
+
+        $result.FullName | Should -Be (Get-Item -LiteralPath $bracketed).FullName
+        Get-Content -LiteralPath (Join-Path $bracketed 'Bookmarks') | Should -Be 'saved'
+        Assert-FakeChromeProfile -Path $bracketed
+        @(Get-ChildItem -LiteralPath $decoy -Force) | Should -BeNullOrEmpty -Because 'another profile must never receive the restore'
+        Test-Path -LiteralPath $zip | Should -BeFalse
     }
 
     It 'warns and leaves an existing profile and the zip alone' {
