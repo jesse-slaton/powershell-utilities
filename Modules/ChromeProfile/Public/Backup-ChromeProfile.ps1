@@ -43,6 +43,8 @@ function Backup-ChromeProfile {
     .NOTES
         Run as the user whose profile is backed up, with Chrome closed (Chrome locks some
         profile files while it runs, and those make the backup fail). No admin rights needed.
+        A backup that is killed mid-write can leave a ChromeProfileBackup.partial-<id>.zip in the
+        destination; it is never restored and is safe to delete once no backup is running.
         Compress-Archive skips hidden files and folders at any depth and empty folders
         directly in the profile folder, and cannot add a file larger than 2 GB (#161). Part of
         the ChromeProfile module.
@@ -67,15 +69,15 @@ function Backup-ChromeProfile {
     # wildcard pattern that matches a different folder.
     $Destination = $PSCmdlet.GetUnresolvedProviderPathFromPSPath($Destination)
     $zipFile = Join-Path $Destination 'ChromeProfileBackup.zip'
-    # Write a sibling temp zip (Compress-Archive on 5.1 needs the .zip extension) and swap it in
-    # only on success, so a failed backup never destroys the previous good one.
-    $tempZip = Join-Path $Destination 'ChromeProfileBackup.partial.zip'
+    # Write a temp zip with a name of this run's own (Compress-Archive on 5.1 needs the .zip
+    # extension) and swap it in only on success, so a failed backup never destroys the previous
+    # good one and two backups to the same folder never publish each other's zip. A new name also
+    # keeps Compress-Archive away from its replace-existing branch, which reads the path as a
+    # wildcard pattern.
+    $tempZip = Join-Path $Destination ('ChromeProfileBackup.partial-{0}.zip' -f [guid]::NewGuid().ToString('N'))
     try {
         # New-Item has no -LiteralPath; the .NET call takes the path as it is.
         $null = [System.IO.Directory]::CreateDirectory($Destination)
-        # A temp zip left by an interrupted run is removed here, so Compress-Archive always writes a
-        # new file: its replace-existing branch reads the path as a wildcard pattern.
-        if (Test-Path -LiteralPath $tempZip) { Remove-Item -LiteralPath $tempZip -Force -ErrorAction Stop }
         # Wildcard the contents so the zip root is the profile itself, not a folder named after it.
         $source = Join-Path ([System.Management.Automation.WildcardPattern]::Escape($ProfilePath)) '*'
         # -DestinationPath has no literal form; Compress-Archive unescapes it to a provider path first.

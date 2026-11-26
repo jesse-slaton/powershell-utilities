@@ -93,4 +93,20 @@ Describe 'Module <Name>' -ForEach $script:moduleCases {
         (@($module.ExportedAliases.Keys | Sort-Object) -join ', ') | Should -Be ($declaredAliases -join ', ')
         @($module.ExportedCmdlets.Keys) | Should -BeNullOrEmpty
     }
+
+    It 'exports the same functions when imported from a folder whose path has brackets' {
+        # A clone under, say, C:\work\repo[1] must still load: the loader lists Private/ and
+        # Public/ literally, never as a wildcard pattern.
+        $copyRoot = Join-Path $TestDrive ('repo[1]-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $null = [System.IO.Directory]::CreateDirectory($copyRoot)
+        Copy-Item -LiteralPath $ModuleFolder -Destination (Join-Path $copyRoot $Name) -Recurse
+        $copyManifest = [System.Management.Automation.WildcardPattern]::Escape((Join-Path (Join-Path $copyRoot $Name) "$Name.psd1"))
+        try {
+            $module = Import-Module -Name $copyManifest -Force -PassThru -ErrorAction Stop
+            (@($module.ExportedFunctions.Keys | Sort-Object) -join ', ') | Should -Be ($declaredFunctions -join ', ')
+        }
+        finally {
+            Remove-Module -Name $Name -Force -ErrorAction SilentlyContinue
+        }
+    }
 }

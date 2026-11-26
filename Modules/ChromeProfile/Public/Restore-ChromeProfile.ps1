@@ -58,6 +58,10 @@ function Restore-ChromeProfile {
     # Resolve to a literal file-system path: '[' and ']' in a profile name (for example
     # 'Profile [1]') must never be read as a wildcard pattern that matches another profile.
     $ProfilePath = $PSCmdlet.GetUnresolvedProviderPathFromPSPath($ProfilePath)
+    # Drop trailing separators ('...\Default\'), or the staging folder below would be created
+    # inside the profile folder instead of next to it. A bare root such as C:\ keeps its separator.
+    $trimmed = $ProfilePath.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    if ($trimmed.Length -ge ([System.IO.Path]::GetPathRoot($ProfilePath)).Length) { $ProfilePath = $trimmed }
 
     if (Test-Path -LiteralPath $ProfilePath) {
         Write-Warning "Chrome profile folder already exists, not restored: $ProfilePath"

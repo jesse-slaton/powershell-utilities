@@ -115,6 +115,22 @@ Describe 'Backup-ChromeProfile' {
         $result.Name | Should -Be 'ChromeProfileBackup.zip'
     }
 
+    It 'leaves partial zips of other runs alone and leaves none of its own behind' {
+        # Another backup to the same folder may be writing its own partial zip right now.
+        $null = New-Item -ItemType Directory -Path $backup -Force
+        $others = @('ChromeProfileBackup.partial.zip', 'ChromeProfileBackup.partial-0123456789abcdef.zip')
+        foreach ($name in $others) { Set-Content -LiteralPath (Join-Path $backup $name) -Value 'other run' }
+
+        $result = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorAction Stop
+
+        $result.Name | Should -Be 'ChromeProfileBackup.zip'
+        foreach ($name in $others) {
+            Get-Content -LiteralPath (Join-Path $backup $name) | Should -Be 'other run' -Because 'a partial zip this call did not write is not its to remove'
+        }
+        @(Get-ChildItem -LiteralPath $backup -File | Where-Object { $_.Name -like 'ChromeProfileBackup.partial*' -and $others -notcontains $_.Name }) |
+            Should -BeNullOrEmpty -Because 'the run removes or publishes its own partial zip'
+    }
+
     It 'replaces an existing backup zip' {
         $null = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile
         Set-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') -Value 'second'
@@ -247,6 +263,19 @@ Describe 'Restore-ChromeProfile' {
         Get-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') | Should -Be 'created by Chrome' -Because 'a profile this call did not create must be left as it is'
         Test-Path -LiteralPath $zip | Should -BeTrue
         @(Get-ChildItem -LiteralPath (Split-Path -Parent $chromeProfile) -Force | Where-Object Name -ne 'Default') | Should -BeNullOrEmpty -Because 'the temporary extraction folder is removed'
+    }
+
+    It 'restores to a profile path given with a trailing separator' {
+        Initialize-FakeChromeProfile -Path $chromeProfile -Bookmarks 'saved'
+        $null = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorAction Stop
+        Remove-Item -LiteralPath $chromeProfile -Recurse -Force
+        $withSeparator = $chromeProfile + [System.IO.Path]::DirectorySeparatorChar
+
+        $result = Restore-ChromeProfile -Path $backup -ProfilePath $withSeparator -ErrorAction Stop
+
+        $result | Should -BeOfType System.IO.DirectoryInfo
+        Get-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') | Should -Be 'saved'
+        @(Get-ChildItem -LiteralPath (Split-Path -Parent $chromeProfile) -Force).Name | Should -Be 'Default' -Because 'the staging folder is a sibling and is renamed into place'
     }
 
     It 'warns and leaves an existing profile and the zip alone' {
