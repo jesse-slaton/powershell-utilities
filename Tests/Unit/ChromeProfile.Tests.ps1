@@ -326,6 +326,242 @@ Describe 'Restore-ChromeProfile' {
     }
 }
 
+Describe 'Backup-ChromeBookmark' {
+    BeforeEach {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().Guid)
+        $chromeProfile = Join-Path $root 'User Data/Default'
+        $backup = Join-Path $root 'backup'
+        Initialize-FakeChromeProfile -Path $chromeProfile -Bookmarks 'first'
+    }
+
+    It 'copies Bookmarks to <Destination>/Chrome-Bookmarks, creating the folder' {
+        $result = Backup-ChromeBookmark -Destination $backup -ProfilePath $chromeProfile
+
+        $result | Should -BeOfType System.IO.FileInfo
+        $result.FullName | Should -Be (Get-Item -LiteralPath (Join-Path $backup 'Chrome-Bookmarks')).FullName
+        Get-Content -LiteralPath $result.FullName | Should -Be 'first'
+    }
+
+    It 'writes into a bracketed destination literally, never into a folder the brackets match as a wildcard' {
+        $decoy = Join-Path $root 'Backup 1'
+        $null = New-Item -ItemType Directory -Path $decoy -Force
+        $bracketed = Join-Path $root 'Backup [1]'
+
+        $result = Backup-ChromeBookmark -Destination $bracketed -ProfilePath $chromeProfile -ErrorAction Stop
+
+        $result.FullName | Should -Be (Get-Item -LiteralPath (Join-Path $bracketed 'Chrome-Bookmarks')).FullName
+        Get-Content -LiteralPath $result.FullName | Should -Be 'first'
+        @(Get-ChildItem -LiteralPath $decoy -Force) | Should -BeNullOrEmpty -Because 'the look-alike folder must stay untouched'
+    }
+
+    It 'replaces an earlier copy on a second run' {
+        $null = Backup-ChromeBookmark -Destination $backup -ProfilePath $chromeProfile
+        Set-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') -Value 'second'
+
+        $result = Backup-ChromeBookmark -Destination $backup -ProfilePath $chromeProfile -ErrorVariable err
+
+        $err | Should -BeNullOrEmpty
+        Get-Content -LiteralPath $result.FullName | Should -Be 'second'
+    }
+
+    It 'reads the Default profile when no -ProfilePath is given, and accepts -BackupPath and the old name' {
+        Mock Get-ChromeDefaultProfilePath -ModuleName ChromeProfile { $chromeProfile }
+
+        $result = Backup-ChromeBookmarks -BackupPath $backup
+
+        Get-Content -LiteralPath $result.FullName | Should -Be 'first'
+        Should -Invoke Get-ChromeDefaultProfilePath -ModuleName ChromeProfile -Times 1 -Exactly
+    }
+
+    It 'requires a destination' {
+        (Get-Command Backup-ChromeBookmark).Parameters['Destination'].Attributes.Mandatory | Should -Contain $true
+    }
+
+    It 'writes an error and creates nothing when the profile has no Bookmarks file' {
+        Remove-Item -LiteralPath (Join-Path $chromeProfile 'Bookmarks')
+
+        $result = Backup-ChromeBookmark -Destination $backup -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*bookmarks file not found*'
+        Test-Path -LiteralPath $backup | Should -BeFalse
+    }
+
+    It 'writes an error when the copy fails' {
+        Mock Copy-Item -ModuleName ChromeProfile { throw 'access denied' }
+
+        $result = Backup-ChromeBookmark -Destination $backup -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*Error copying Chrome bookmarks*access denied*'
+    }
+}
+
+Describe 'Restore-ChromeBookmark' {
+    BeforeEach {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().Guid)
+        $chromeProfile = Join-Path $root 'User Data/Default'
+        $backup = Join-Path $root 'backup'
+        Initialize-FakeChromeProfile -Path $chromeProfile -Bookmarks 'saved'
+        $null = Backup-ChromeBookmark -Destination $backup -ProfilePath $chromeProfile
+        Set-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') -Value 'damaged'
+    }
+
+    It 'restores into a bracketed profile literally, never into a profile the brackets match as a wildcard' {
+        $decoy = Join-Path $root 'User Data/Profile 1'
+        $bracketed = Join-Path $root 'User Data/Profile [1]'
+        foreach ($folder in $decoy, $bracketed) {
+            $null = [System.IO.Directory]::CreateDirectory($folder)
+            Set-Content -LiteralPath (Join-Path $folder 'Bookmarks') -Value 'untouched'
+        }
+
+        $null = Restore-ChromeBookmark -Path $backup -ProfilePath $bracketed -ErrorAction Stop
+
+        Get-Content -LiteralPath (Join-Path $bracketed 'Bookmarks') | Should -Be 'saved'
+        Get-Content -LiteralPath (Join-Path $decoy 'Bookmarks') | Should -Be 'untouched' -Because 'another profile must never receive the restore'
+    }
+
+    It 'replaces the profile Bookmarks file with the backup copy' {
+        $result = Restore-ChromeBookmark -Path $backup -ProfilePath $chromeProfile
+
+        $result | Should -BeOfType System.IO.FileInfo
+        Get-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') | Should -Be 'saved'
+    }
+
+    It 'writes to the Default profile when no -ProfilePath is given, and accepts -BackupPath and the old name' {
+        Mock Get-ChromeDefaultProfilePath -ModuleName ChromeProfile { $chromeProfile }
+
+        $null = Restore-ChromeBookmarks -BackupPath $backup
+
+        Get-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') | Should -Be 'saved'
+    }
+
+    It 'writes an error and changes nothing when the backup copy is missing' {
+        $empty = Join-Path $root 'empty'
+
+        $result = Restore-ChromeBookmark -Path $empty -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*bookmarks backup not found*'
+        Get-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') | Should -Be 'damaged'
+    }
+
+    It 'writes an error and creates nothing when the profile folder is missing' {
+        $missing = Join-Path $root 'User Data/Profile 9'
+
+        $result = Restore-ChromeBookmark -Path $backup -ProfilePath $missing -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*Chrome profile folder not found*'
+        Test-Path -LiteralPath $missing | Should -BeFalse
+    }
+
+    It 'writes an error when the copy fails' {
+        Mock Copy-Item -ModuleName ChromeProfile { throw 'file in use' }
+
+        $null = Restore-ChromeBookmark -Path $backup -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
+
+        "$err" | Should -BeLike '*Error restoring Chrome bookmarks*file in use*'
+    }
+}
+
+Describe 'Get-ChromeExtension' {
+    BeforeAll {
+        function Add-FakeExtension {
+            param([string]$Root, [string]$User, [string]$Id, [string]$Version, [string]$Json)
+            $folder = [System.IO.Path]::Combine($Root, $User, 'AppData', 'Local', 'Google', 'Chrome', 'User Data', 'Default', 'Extensions', $Id, $Version)
+            $null = New-Item -ItemType Directory -Path $folder -Force
+            if ($Json) { Set-Content -LiteralPath (Join-Path $folder 'manifest.json') -Value $Json }
+            Join-Path $folder 'manifest.json'
+        }
+    }
+
+    BeforeEach {
+        $usersRoot = Join-Path $TestDrive ([guid]::NewGuid().Guid)
+        $alicePath = Add-FakeExtension -Root $usersRoot -User 'alice' -Id 'abc' -Version '1.0_0' -Json '{"name":"Alpha","version":"1.0","permissions":["tabs"]}'
+        $bobPath = Add-FakeExtension -Root $usersRoot -User 'bob' -Id 'def' -Version '2.1_0' -Json '{"name":"Beta","version":"2.1"}'
+        $null = Add-FakeExtension -Root $usersRoot -User 'bob' -Id 'ghi' -Version '0.1_0'
+        $null = New-Item -ItemType Directory -Path (Join-Path $usersRoot 'carol') -Force
+    }
+
+    It 'outputs each manifest with its properties plus User and Path' {
+        $result = @(Get-ChromeExtension -UserProfileRoot $usersRoot | Sort-Object name)
+
+        $result.Count | Should -Be 2
+        $result[0].name | Should -Be 'Alpha'
+        $result[0].version | Should -Be '1.0'
+        $result[0].permissions | Should -Be 'tabs'
+        $result[0].User | Should -Be 'alice'
+        $result[0].Path | Should -Be $alicePath
+        $result[1].name | Should -Be 'Beta'
+        $result[1].User | Should -Be 'bob'
+        $result[1].Path | Should -Be $bobPath
+    }
+
+    It 'writes an error for a manifest that is not JSON and still outputs the others' {
+        $null = Add-FakeExtension -Root $usersRoot -User 'alice' -Id 'bad' -Version '1.0_0' -Json 'not json {'
+
+        $result = @(Get-ChromeExtension -UserProfileRoot $usersRoot -ErrorVariable err -ErrorAction SilentlyContinue)
+
+        $result.Count | Should -Be 2
+        "$err" | Should -BeLike '*Error reading Chrome extension manifest*bad*'
+    }
+
+    It 'skips users without Chrome or with an unreadable profile without an error' {
+        $null = Get-ChromeExtension -UserProfileRoot $usersRoot -ErrorVariable err
+
+        $err | Should -BeNullOrEmpty -Because 'carol has no Chrome folder'
+    }
+
+    It 'reads a BOM-less manifest with non-ASCII text as UTF-8' {
+        # Built from code points so this file stays ASCII: 'Cafe' with e-acute, then a CJK character.
+        $name = 'Caf' + [char]0x00E9 + ' ' + [char]0x6F22
+        [System.IO.File]::WriteAllText($alicePath, ('{"name":"' + $name + '","version":"1.0"}'), (New-Object System.Text.UTF8Encoding($false)))
+
+        $result = @(Get-ChromeExtension -UserProfileRoot $usersRoot | Where-Object User -eq 'alice')
+
+        $result.Count | Should -Be 1
+        $result[0].name | Should -Be $name
+    }
+
+    It 'enumerates the user profile root with -ErrorAction Ignore so an unreadable folder surfaces nothing' {
+        # A Pester mock cannot reproduce how Ignore drops a cmdlet's error record (an error written
+        # inside a mock still reaches -ErrorVariable), so assert the preference the real call gets.
+        Mock Get-ChildItem -ModuleName ChromeProfile -ParameterFilter { $LiteralPath -eq $usersRoot } {
+            Microsoft.PowerShell.Management\Get-ChildItem -LiteralPath $LiteralPath -Directory
+        }
+
+        $result = @(Get-ChromeExtension -UserProfileRoot $usersRoot -ErrorVariable err)
+
+        $err | Should -BeNullOrEmpty
+        $result.Count | Should -Be 2
+        Should -Invoke Get-ChildItem -ModuleName ChromeProfile -ParameterFilter { $LiteralPath -eq $usersRoot -and $ErrorAction -eq 'Ignore' } -Times 1 -Exactly
+    }
+
+    It 'writes an error and outputs nothing when the root does not exist' {
+        $result = Get-ChromeExtension -UserProfileRoot (Join-Path $usersRoot 'missing') -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*User profile root not found*'
+    }
+
+    It 'searches $env:SystemDrive/Users when no root is given' {
+        $saved = $env:SystemDrive
+        try {
+            $env:SystemDrive = $usersRoot
+            $null = Add-FakeExtension -Root (Join-Path $usersRoot 'Users') -User 'dave' -Id 'xyz' -Version '3.0_0' -Json '{"name":"Gamma"}'
+
+            $result = @(Get-ChromeExtension)
+
+            $result.Count | Should -Be 1
+            $result[0].User | Should -Be 'dave'
+        }
+        finally {
+            $env:SystemDrive = $saved
+        }
+    }
+}
+
 Describe 'ChromeProfile default locations' {
     It 'builds the Default profile and backup folder paths from the environment' {
         InModuleScope ChromeProfile {
