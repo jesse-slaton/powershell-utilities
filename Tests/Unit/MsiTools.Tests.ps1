@@ -249,12 +249,39 @@ Describe 'Get-MsiFileInfo' {
     }
 }
 
+Describe 'Close-MsiComObject' {
+    # Not mocked: only the guard runs, because no input here is a COM object.
+    It 'ignores $null' {
+        $out = InModuleScope MsiTools { Close-MsiComObject -InputObject $null -ErrorVariable err -ErrorAction SilentlyContinue; @($err).Count }
+        $out | Should -Be 0
+    }
+
+    It 'reports a value that is not a COM object instead of passing it to ReleaseComObject' {
+        $out = InModuleScope MsiTools {
+            Close-MsiComObject -InputObject ([pscustomobject]@{ Kind = 'Fake' }) -ErrorVariable err -ErrorAction SilentlyContinue
+            Close-MsiComObject -InputObject 'not com' -ErrorVariable +err -ErrorAction SilentlyContinue
+            $err
+        }
+        @($out).Count | Should -Be 2
+        "$($out[0])" | Should -Match 'Not a COM object, so not released: System\.Management\.Automation\.PSCustomObject'
+        "$($out[1])" | Should -Match 'Not a COM object, so not released: System\.String'
+    }
+}
+
 Describe 'Get-MsiFileInfo against the real Windows Installer COM object' -Skip:(-not $script:onWindows) {
     BeforeAll {
         # Late-bound call, as in the module: the Installer objects expose no type information.
         function Invoke-RealMsiMember {
             param([object]$Target, [string]$Name, [object[]]$Arguments)
             $Target.GetType().InvokeMember($Name, 'InvokeMethod', $null, $Target, $Arguments)
+        }
+
+        # Release through the module's own helper, so test and module share one release rule:
+        # $null is skipped and a non-COM value is reported, not passed to ReleaseComObject (whose
+        # exception, thrown in a finally block, would hide the error that really went wrong).
+        function Close-RealMsiObject {
+            param([object]$InputObject)
+            & (Get-Module -Name MsiTools) { param($o) Close-MsiComObject -InputObject $o } $InputObject
         }
 
         # Build a minimal MSI: just a Property table with three rows.
@@ -275,13 +302,13 @@ Describe 'Get-MsiFileInfo against the real Windows Installer COM object' -Skip:(
                         $null = Invoke-RealMsiMember $view Execute
                         $null = Invoke-RealMsiMember $view Close
                     } finally {
-                        $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($view)
+                        Close-RealMsiObject $view
                     }
                 }
                 $null = Invoke-RealMsiMember $database Commit
             } finally {
-                if ($null -ne $database) { $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($database) }
-                $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($installer)
+                Close-RealMsiObject $database
+                Close-RealMsiObject $installer
             }
         }
     }
@@ -308,8 +335,8 @@ Describe 'Get-MsiFileInfo against the real Windows Installer COM object' -Skip:(
             $database = Invoke-RealMsiMember $installer OpenDatabase @($msi, 0 <#msiOpenDatabaseModeReadOnly#>)
             { Remove-Item -LiteralPath $msi -ErrorAction Stop } | Should -Throw
         } finally {
-            if ($null -ne $database) { $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($database) }
-            $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($installer)
+            Close-RealMsiObject $database
+            Close-RealMsiObject $installer
         }
         Remove-Item -LiteralPath $msi -ErrorAction Stop
         Test-Path -LiteralPath $msi | Should -BeFalse
