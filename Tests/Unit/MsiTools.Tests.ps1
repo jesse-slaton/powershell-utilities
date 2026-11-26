@@ -157,6 +157,23 @@ Describe 'Get-MsiFileInfo' {
         ($script:comCalls | Where-Object { $_ -ne 'Release:Record' }) -join ',' | Should -Be "$perFile,$perFile,Release:Installer"
     }
 
+    It 'releases the installer when -ErrorAction Stop ends the run on a View.Close failure' {
+        Mock Invoke-MsiComMember -ModuleName MsiTools -ParameterFilter { $Name -eq 'Close' } {
+            $null = $script:comCalls.Add('Close:View')
+            throw 'Close failed'
+        }
+        { Get-MsiFileInfo -FilePath $msi -ErrorAction Stop } | Should -Throw '*Failed to close the MSI view*'
+        @($script:comCalls | Where-Object { $_ -eq 'Release:Installer' }).Count | Should -Be 1
+        $script:comCalls[-1] | Should -Be 'Release:Installer'
+    }
+
+    It 'releases the installer when -ErrorAction Stop ends the run on a read failure' {
+        Mock Invoke-MsiComMember -ModuleName MsiTools -ParameterFilter { $Name -eq 'OpenView' } { throw 'Open view failed' }
+        { Get-MsiFileInfo -FilePath $msi -ErrorAction Stop } | Should -Throw '*Failed to get MSI file properties*'
+        @($script:comCalls | Where-Object { $_ -eq 'Release:Installer' }).Count | Should -Be 1
+        $script:comCalls[-1] | Should -Be 'Release:Installer'
+    }
+
     It 'returns only upper-case names for -PropertyType Public' {
         $result = Get-MsiFileInfo -FilePath $msi -PropertyType Public
         @($result.Keys) | Should -Be @('ALLUSERS')
