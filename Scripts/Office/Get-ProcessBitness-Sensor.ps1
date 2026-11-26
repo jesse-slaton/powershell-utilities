@@ -18,11 +18,12 @@
     every process is reported as 'x86'.
 
 .EXAMPLE
-    . .\Get-Bitness.ps1
-    . .\Get-ProcessBitness-Sensor.ps1
+    Import-Module .\Modules\OfficeC2R\OfficeC2R.psd1
+    . .\Scripts\Office\Get-ProcessBitness-Sensor.ps1
     Get-ProcessBitness -Process 'OUTLOOK'
 
-    Outputs x86 or x64 for Outlook, once Test-Process is also defined.
+    Run from the repository root. Outputs x86 or x64 for Outlook, once Test-Process is
+    also defined.
 
 .EXAMPLE
     Get-ProcessBitness -Process 'OUTLOOK', 'EXCEL' -Verbose
@@ -30,7 +31,7 @@
     Outputs one value per running process name and writes why each was chosen.
 
 .NOTES
-    Requires the Get-Bitness function (Get-Bitness.ps1) and a Test-Process function
+    Requires the Get-Bitness function (OfficeC2R module) and a Test-Process function
     that accepts -Process; Test-Process is not defined in this repository. Run from
     64-bit PowerShell. Reading the modules of processes owned by other users needs
     administrator rights.

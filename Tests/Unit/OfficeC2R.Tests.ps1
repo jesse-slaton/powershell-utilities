@@ -120,3 +120,54 @@ Describe 'Get-OfficeC2RChannel' {
         Get-Office365Channel | Should -Be 'Beta Channel'
     }
 }
+
+Describe 'Get-OfficeC2RBitness' {
+    It 'outputs <Expected> for Platform <Platform>' -ForEach @(
+        @{ Platform = 'x86'; Expected = '32-bit' }
+        @{ Platform = 'x64'; Expected = '64-bit' }
+        @{ Platform = 'arm64'; Expected = 'Unknown Office Platform: arm64' }
+    ) {
+        Mock Get-OfficeC2RConfigurationValue -ModuleName OfficeC2R { @{ Platform = $Platform } }
+        Get-OfficeC2RBitness | Should -Be $Expected
+        Should -Invoke Get-OfficeC2RConfigurationValue -ModuleName OfficeC2R -Times 1 -Exactly -ParameterFilter { $Name -contains 'Platform' }
+    }
+
+    It 'writes an error and outputs nothing when <Case>' -ForEach @(
+        @{ Case = 'the Configuration key is missing'; Config = $null; Pattern = 'not found' }
+        @{ Case = 'Platform is not set'; Config = @{ Platform = $null }; Pattern = 'Platform value is not set' }
+    ) {
+        Mock Get-OfficeC2RConfigurationValue -ModuleName OfficeC2R { $Config }
+        $result = Get-OfficeC2RBitness -ErrorVariable err -ErrorAction SilentlyContinue
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -Match $Pattern
+    }
+
+    It 'writes the registry error, not a not-installed one, when the read fails' {
+        Mock Get-OfficeC2RConfigurationValue -ModuleName OfficeC2R { throw [System.UnauthorizedAccessException]::new('Access to the registry key is denied.') }
+        $result = Get-OfficeC2RBitness -ErrorVariable err -ErrorAction SilentlyContinue
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -Match 'registry key is denied'
+        "$err" | Should -Not -Match 'may not be installed'
+    }
+
+    It 'still answers to the Get-OfficeClickToRunBitness alias' {
+        Mock Get-OfficeC2RConfigurationValue -ModuleName OfficeC2R { @{ Platform = 'x64' } }
+        Get-OfficeClickToRunBitness | Should -Be '64-bit'
+    }
+}
+
+Describe 'Get-Bitness' {
+    It 'outputs <Expected> when the pointer size is <Size>' -ForEach @(
+        @{ Size = 4; Expected = 'x86' }
+        @{ Size = 8; Expected = 'x64' }
+        @{ Size = 16; Expected = 'Unknown' }
+    ) {
+        Mock Get-OfficeC2RPointerSize -ModuleName OfficeC2R { $Size }
+        Get-Bitness | Should -Be $Expected
+    }
+
+    It 'reports the real pointer size of this process' {
+        $expected = if ([IntPtr]::Size -eq 8) { 'x64' } else { 'x86' }
+        Get-Bitness | Should -Be $expected
+    }
+}
