@@ -401,7 +401,10 @@ Describe 'Get-BitlockerCompliance.ps1 recovery keys' {
 
         AfterAll {
             Remove-Variable -Name BlcTestCsv, BlcTestFakeKey, BlcTestKeyId -Scope Global -ErrorAction SilentlyContinue
-            Remove-Item -Path Function:\global:New-Object -ErrorAction SilentlyContinue
+            # Not Function:\global:New-Object: the Function: drive takes no scope prefix, so that
+            # path never matches and the shim would leak into later test files (the MsiTools
+            # real-COM tests then got the fake Excel instead of a WindowsInstaller object).
+            Remove-Item -LiteralPath Function:\New-Object
         }
 
         It 'runs without errors and writes the four reports' {
@@ -444,5 +447,11 @@ Describe 'Get-BitlockerCompliance.ps1 recovery keys' {
                 $Help | Should -Match ('(?m)^\s+' + [regex]::Escape($Column) + '\s')
             }
         }
+    }
+}
+
+Describe 'Get-BitlockerCompliance test cleanup' {
+    It 'leaves no New-Object shim behind for later test files' {
+        (Get-Command -Name New-Object).CommandType | Should -Be 'Cmdlet'
     }
 }
