@@ -154,6 +154,12 @@ How it is checked:
 Rule: install and update modules with PSResourceGet (`Install-PSResource`, `Find-PSResource`,
 `Update-PSResource`, `Get-InstalledPSResource`).
 
+- PSResourceGet ships with PowerShell 7.4 and later. On PowerShell 7.0 to 7.3 it is a host
+  prerequisite: install the `Microsoft.PowerShell.PSResourceGet` module once, by hand, before
+  running the script. A script does not bootstrap it; when `Install-PSResource` is missing on
+  PowerShell 7 it stops with an error that names the module, as
+  `Tests/Install-TestDependencies.ps1` does.
+
 - PowerShellGet v2 (`Install-Module`, `Find-Module`, `Update-Module`) is allowed only inside a
   guarded fallback branch: `if ($PSVersionTable.PSEdition -eq 'Desktop') { ... }`.
 - After #145 drops Windows PowerShell 5.1, PowerShellGet v2 is banned outright and the guard
@@ -168,6 +174,9 @@ if ($PSVersionTable.PSEdition -eq 'Desktop') {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     Install-Module -Name Pester -Scope CurrentUser
 } else {
+    if (-not (Get-Command -Name Install-PSResource -ErrorAction Ignore)) {  # absent on 7.0-7.3
+        throw 'Install the Microsoft.PowerShell.PSResourceGet module first (it ships with PowerShell 7.4+).'
+    }
     Install-PSResource -Name Pester -Scope CurrentUser
 }
 ```
@@ -210,8 +219,10 @@ How it is checked:
 Rules:
 
 - Where a failure matters, use `-ErrorAction Stop` inside `try`/`catch`.
-- A failure on one item writes `Write-Error` and the loop continues. A failure of the whole run
-  throws.
+- A failure on one item writes `Write-Error -ErrorAction Continue` and the loop continues. A
+  failure of the whole run throws. The explicit `-ErrorAction Continue` matters: a caller that sets
+  `$ErrorActionPreference = 'Stop'` would otherwise turn that `Write-Error` into a terminating
+  error and end the loop at the first bad item.
 - No empty `catch` blocks.
 - Setting `SilentlyContinue` or `Ignore` by any route needs an explanatory comment on the same
   line or the line directly above: `-ErrorAction`, `-WarningAction`, `-InformationAction` and
@@ -227,7 +238,7 @@ foreach ($itemPath in $Path) {
     try {
         $item = Get-Item -Path $itemPath -ErrorAction Stop
     } catch {
-        Write-Error "Cannot read '$itemPath': $($_.Exception.Message)"  # one item failed; keep going
+        Write-Error -ErrorAction Continue "Cannot read '$itemPath': $($_.Exception.Message)"
         continue
     }
     $item
