@@ -313,6 +313,22 @@ Describe 'Set-OfficeC2RChannel' {
         Should -Invoke Start-Process -ModuleName OfficeC2R -Times 0 -Exactly
     }
 
+    It 'runs OfficeC2RClient.exe from the 32-bit Common Files folder when only that one exists' {
+        Mock Test-Path -ModuleName OfficeC2R { $LiteralPath -like '*Program Files (x86)*' }
+        $result = Set-OfficeC2RChannel -OfficeChannel Current
+        $result.ExitCode | Should -Be 0
+        Should -Invoke Start-Process -ModuleName OfficeC2R -Times 1 -Exactly -ParameterFilter {
+            $FilePath -like '*Program Files (x86)\Common Files\microsoft shared\ClickToRun\OfficeC2RClient.exe'
+        }
+    }
+
+    It 'names every folder it tried when OfficeC2RClient.exe is missing' {
+        Mock Test-Path -ModuleName OfficeC2R { $false }
+        Set-OfficeC2RChannel -OfficeChannel Current -ErrorVariable err -ErrorAction SilentlyContinue
+        "$err" | Should -Match ([regex]::Escape('Program Files\Common Files\microsoft shared\ClickToRun\OfficeC2RClient.exe'))
+        "$err" | Should -Match ([regex]::Escape('Program Files (x86)\Common Files\microsoft shared\ClickToRun\OfficeC2RClient.exe'))
+    }
+
     It 'does not run the update when the registry write fails' {
         Mock Write-OfficeC2RConfigurationValue -ModuleName OfficeC2R { throw [System.UnauthorizedAccessException]::new('Access to the registry key is denied.') }
         $result = Set-OfficeC2RChannel -OfficeChannel Current -ErrorVariable err -ErrorAction SilentlyContinue

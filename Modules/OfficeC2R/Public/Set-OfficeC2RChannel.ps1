@@ -4,7 +4,10 @@ function Set-OfficeC2RChannel {
         Switches Office Click-to-Run to another update channel and forces an update.
 
     .DESCRIPTION
-        Checks that OfficeC2RClient.exe exists, then sets UpdateChannel under
+        Looks for OfficeC2RClient.exe under microsoft shared\ClickToRun in the 64-bit and
+        the 32-bit Common Files folders (from CommonProgramW6432, CommonProgramFiles(x86)
+        and CommonProgramFiles, then C:\Program Files and C:\Program Files (x86)), and uses
+        the first one that exists. It then sets UpdateChannel under
         HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration (64-bit registry view) to
         the CDN URL of the channel. It then runs OfficeC2RClient.exe with
         "/update user displaylevel=false forceappshutdown=true", which closes open Office
@@ -72,10 +75,15 @@ function Set-OfficeC2RChannel {
         Beta              = 'http://officecdn.microsoft.com/pr/5440fd1f-7ecb-4221-8110-145efaa6372f'
     }
     $channelUrl = $channelUrls[$OfficeChannel]
-    $client = 'C:\Program Files\Common Files\microsoft shared\ClickToRun\OfficeC2RClient.exe'
-
-    if (-not (Test-Path -LiteralPath $client -PathType Leaf)) {
-        Write-Error -Message "OfficeC2RClient.exe not found at $client. Office Click-to-Run may not be installed." -Category ObjectNotFound
+    # The 64-bit Common Files folder first. CommonProgramFiles alone names the 32-bit folder
+    # in a 32-bit PowerShell, and the C:\ defaults cover a host without these variables.
+    $roots = @($env:CommonProgramW6432, ${env:CommonProgramFiles(x86)}, $env:CommonProgramFiles,
+        'C:\Program Files\Common Files', 'C:\Program Files (x86)\Common Files') |
+        Where-Object { $_ } | Select-Object -Unique
+    $candidates = @($roots | ForEach-Object { $_.TrimEnd('\') + '\microsoft shared\ClickToRun\OfficeC2RClient.exe' })
+    $client = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    if (-not $client) {
+        Write-Error -Message "OfficeC2RClient.exe not found. Tried: $($candidates -join '; '). Office Click-to-Run may not be installed." -Category ObjectNotFound
         return
     }
 
