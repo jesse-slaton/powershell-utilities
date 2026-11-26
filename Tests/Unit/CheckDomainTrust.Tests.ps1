@@ -178,31 +178,31 @@ Describe 'Test-DomainSecureChannel' {
     }
 
     It 'ignores answers that are not SRV records' {
-        Mock Resolve-DnsName { [pscustomobject]@{ QueryType = 'A'; Name = 'dc01.corp.contoso.com' } }
+        Mock Resolve-DnsName { [pscustomobject]@{ Type = 'A'; Section = 'Additional'; Name = 'dc01.corp.contoso.com'; IPAddress = '192.0.2.10' } }
         Test-DomainSecureChannel -DomainName 'corp.contoso.com' | Should -BeExactly 'Unable to resolve domain controller addresses.'
         Should -Invoke Invoke-NltestScVerify -Times 0 -Exactly
     }
 
     It 'looks up the domain controller SRV records of the given domain' {
-        Mock Resolve-DnsName { [pscustomobject]@{ QueryType = 'SRV'; NameTarget = 'dc01.corp.contoso.com' } }
+        Mock Resolve-DnsName { [pscustomobject]@{ Type = 'SRV'; Section = 'Answer'; Name = '_ldap._tcp.dc._msdcs.corp.contoso.com'; NameTarget = 'dc01.corp.contoso.com'; Port = 389 } }
         $null = Test-DomainSecureChannel -DomainName 'corp.contoso.com'
         Should -Invoke Resolve-DnsName -Times 1 -Exactly -ParameterFilter { $Name -eq '_ldap._tcp.dc._msdcs.corp.contoso.com' -and $Type -eq 'SRV' }
     }
 
     It 'returns True for a healthy channel, checking the given domain' {
-        Mock Resolve-DnsName { [pscustomobject]@{ QueryType = 'SRV'; NameTarget = 'dc01.corp.contoso.com' } }
+        Mock Resolve-DnsName { [pscustomobject]@{ Type = 'SRV'; Section = 'Answer'; Name = '_ldap._tcp.dc._msdcs.corp.contoso.com'; NameTarget = 'dc01.corp.contoso.com'; Port = 389 } }
         Test-DomainSecureChannel -DomainName 'corp.contoso.com' | Should -BeExactly $true
         Should -Invoke Invoke-NltestScVerify -Times 1 -Exactly -ParameterFilter { $DomainName -eq 'corp.contoso.com' }
     }
 
     It 'returns False for a broken channel' {
-        Mock Resolve-DnsName { [pscustomobject]@{ QueryType = 'SRV'; NameTarget = 'dc01.corp.contoso.com' } }
+        Mock Resolve-DnsName { [pscustomobject]@{ Type = 'SRV'; Section = 'Answer'; Name = '_ldap._tcp.dc._msdcs.corp.contoso.com'; NameTarget = 'dc01.corp.contoso.com'; Port = 389 } }
         Mock Invoke-NltestScVerify { [pscustomobject]@{ ExitCode = 0; Output = $script:NoLogonServers } }
         Test-DomainSecureChannel -DomainName 'corp.contoso.com' | Should -BeExactly $false
     }
 
     It 'lets an nltest failure stop the caller' {
-        Mock Resolve-DnsName { [pscustomobject]@{ QueryType = 'SRV'; NameTarget = 'dc01.corp.contoso.com' } }
+        Mock Resolve-DnsName { [pscustomobject]@{ Type = 'SRV'; Section = 'Answer'; Name = '_ldap._tcp.dc._msdcs.corp.contoso.com'; NameTarget = 'dc01.corp.contoso.com'; Port = 389 } }
         Mock Invoke-NltestScVerify { [pscustomobject]@{ ExitCode = 5; Output = @('I_NetLogonControl failed: Status = 5 0x5 ERROR_ACCESS_DENIED') } }
         { Test-DomainSecureChannel -DomainName 'corp.contoso.com' } | Should -Throw '*ERROR_ACCESS_DENIED*'
     }

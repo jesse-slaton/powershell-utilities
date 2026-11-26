@@ -122,7 +122,7 @@ function ConvertFrom-NltestScVerify {
     # ERROR_TRUSTED_DOMAIN_FAILURE, ERROR_TRUSTED_RELATIONSHIP_FAILURE.
     $BrokenTrust = 1311, 1786, 1787, 1788, 1789
     $Text = $Output -join [Environment]::NewLine
-    $Statuses = @([regex]::Matches($Text, '(?<code>\d+)\s+0x[0-9A-Fa-f]+\s+[A-Z][A-Z0-9_]*') |
+    $Statuses = @([regex]::Matches($Text, '(?<code>\d+)\s+0x[0-9A-Fa-f]+\s+[A-Za-z][A-Za-z0-9_]*') |
             ForEach-Object { [int64]$_.Groups['code'].Value })
 
     if ($Statuses.Count -eq 0) {
@@ -153,7 +153,7 @@ function Test-DomainSecureChannel {
         [string]$DomainName
     )
     $Records = @(Resolve-DnsName -Name "_ldap._tcp.dc._msdcs.$DomainName" -Type SRV -ErrorAction SilentlyContinue |
-            Where-Object { $_.QueryType -eq 'SRV' })
+            Where-Object { $_.Type -eq 'SRV' })
     if ($Records.Count -eq 0) {
         return 'Unable to resolve domain controller addresses.'
     }
