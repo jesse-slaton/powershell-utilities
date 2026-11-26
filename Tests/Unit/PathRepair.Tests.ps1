@@ -249,6 +249,29 @@ Describe 'Repair-PathEntry' {
         Should -Invoke Write-EnvironmentVariable -ModuleName PathRepair -Times 0 -Exactly
     }
 
+    It 'keeps leading and trailing empty entries when neither BlankEntries nor NonExistentPaths is selected' {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { ';C:\Good;C:\Good;' }
+        $result = Repair-PathEntry -FixTypes Duplicates -Confirm:$false
+        $result.NewPath | Should -BeExactly ';C:\Good;'
+        @($result.Changes).Count | Should -Be 1
+        $script:writes[3] | Should -BeExactly 'User/PATH=;C:\Good;'
+    }
+
+    It 'never removes a blank entry as a duplicate of another blank' {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { 'C:\Good;;C:\Other;;C:\Good' }
+        $result = Repair-PathEntry -FixTypes Duplicates -Confirm:$false
+        $result.NewPath | Should -BeExactly 'C:\Good;;C:\Other;'
+        @($result.Changes).Count | Should -Be 1
+    }
+
+    It 'removes leading and trailing empty entries as approved BlankEntries changes' {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { ';C:\Good;' }
+        Mock Test-PathDirectory -ModuleName PathRepair { $Path -eq 'C:\Good' }
+        $result = Repair-PathEntry -FixTypes BlankEntries -Confirm:$false
+        $result.NewPath | Should -BeExactly 'C:\Good'
+        @($result.Changes | Where-Object { $_.Reason -eq 'Empty or blank entry' }).Count | Should -Be 2
+    }
+
     It 'writes nothing when the repair would leave the User PATH empty' {
         Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { '\\server\share;Z:\Mapped' }
         $result = Repair-PathEntry -Confirm:$false -ErrorVariable err -ErrorAction SilentlyContinue
@@ -394,6 +417,10 @@ Describe 'Repair-PathEntry -ComputerName' {
         Should -Invoke Invoke-Command -ModuleName PathRepair -Times 2 -Exactly -ParameterFilter {
             $ComputerName -eq 'PC01' -and $null -eq $Credential -and @($ArgumentList[1]) -join ',' -eq 'NonExistentPaths'
         }
+        Should -Invoke Invoke-Command -ModuleName PathRepair -Times 1 -Exactly -ParameterFilter {
+            $ArgumentList[0] -eq $true -and $ArgumentList[2] -eq 'C:\Missing;C:\Good' -and $ArgumentList[3] -eq 'C:\Good'
+        }
+    }
         Should -Invoke Invoke-Command -ModuleName PathRepair -Times 1 -Exactly -ParameterFilter {
             $ArgumentList[0] -eq $true -and $ArgumentList[2] -eq 'C:\Missing;C:\Good' -and $ArgumentList[3] -eq 'C:\Good'
         }

@@ -48,7 +48,9 @@ function Invoke-PathRepairCore {
         throw 'The User PATH environment variable is empty or not set.'
     }
 
-    $entries = @(Split-PathValue -Value $pathRaw.Trim(';'))
+    # Not trimmed: a leading or trailing empty entry is a blank entry like any other, so it is
+    # removed only through BlankEntries and ShouldProcess, and kept when BlankEntries is off.
+    $entries = @(Split-PathValue -Value $pathRaw)
     $seenPaths = @{}
     $fixedPath = New-Object System.Collections.Generic.List[string]
     $changes = New-Object System.Collections.Generic.List[object]
@@ -78,7 +80,8 @@ function Invoke-PathRepairCore {
             $remove = $true
             $reason = 'Empty or blank entry'
         }
-        if (-not $remove -and 'Duplicates' -in $FixTypes -and $seenPaths.ContainsKey($suggested)) {
+        # Blank entries belong to BlankEntries alone, so two of them are never duplicates.
+        if (-not $remove -and 'Duplicates' -in $FixTypes -and -not [string]::IsNullOrWhiteSpace($suggested) -and $seenPaths.ContainsKey($suggested)) {
             $remove = $true
             $reason = 'Duplicate entry'
             $duplicateOf = $seenPaths[$suggested]
