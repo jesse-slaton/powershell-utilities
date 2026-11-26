@@ -1,9 +1,10 @@
 # Archived scripts
 
 Scripts removed from `main` because the product they depend on is no longer in use,
-because they cannot run as written, or because a module function now does their job. Each
-section says which. They are kept in git history: restore one with
-`git show <commit>:"<path>" > "<file>"`, using the last commit listed in its section, or browse
+because the workaround they provide is no longer needed, because they cannot run as written,
+or because a module function now does their job. Each section says which. They are kept in
+git history: restore one with `git show <commit>:"<path>" > "<file>"`, using the last commit
+listed in its section, or browse
 `https://github.com/jesse-slaton/powershell-utilities/tree/<commit>`.
 
 Third-party code that was removed is listed with its upstream in
@@ -52,3 +53,13 @@ wrapped a program that is not in this repository. Last commit that has them: `b5
 |---|---|---|
 | `Scripts/Security/GetBitlockerProtectionStatus.ps1` | Ran an in-house BitlockerProtection.exe (not in this repository) from the current directory and appended its output, with a timestamp, to BitlockerStatus.csv. | `Get-BitLockerVolumeStatus` in `Modules/SecurityPosture`, which reads BitLocker volume state through CIM. |
 | `Scripts/Security/TestDeviceGuardStatus.ps1` | Read Win32_DeviceGuard and defined lookup tables, but wrote no output. | `Get-DeviceGuardStatus` and `Get-DeviceGuardSecurityProperty` in `Modules/SecurityPosture`. |
+
+## Obsolete Chrome workarounds (#44, 2026-11)
+
+One-off workarounds for old Google Chrome builds, retired instead of being folded into the
+`ChromeProfile` module. Last commit that has them: `65206d766586`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/General/Create-ChromeTestShortcut.ps1` | Created a "Test Chrome" Desktop shortcut that starts the 32-bit (x86) Chrome install with the audio service sandbox disabled. |
+| `Scripts/General/Fix-Chrome77JumpList.ps1` | Copied Chrome's jump list file so a pinned Chrome taskbar icon shows its jump list again after the Chrome 77 change. |
