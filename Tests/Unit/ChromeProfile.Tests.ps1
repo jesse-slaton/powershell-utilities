@@ -94,6 +94,27 @@ Describe 'Backup-ChromeProfile' {
         @(Get-ChildItem -LiteralPath $decoy -Force) | Should -BeNullOrEmpty -Because 'the look-alike folder must stay untouched'
     }
 
+    It 'refuses a folder whose only top-level item is a ChromeProfileBackup folder, which Restore-ChromeProfile would read as the old layout' {
+        $odd = Join-Path $root 'User Data/Odd'
+        $null = New-Item -ItemType Directory -Path (Join-Path $odd 'ChromeProfileBackup') -Force
+        Set-Content -LiteralPath (Join-Path $odd 'ChromeProfileBackup/note.txt') -Value 'x'
+
+        $result = Backup-ChromeProfile -Destination $backup -ProfilePath $odd -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*ChromeProfileBackup*could not be restored*'
+        Test-Path -LiteralPath (Join-Path $backup 'ChromeProfileBackup.zip') | Should -BeFalse
+    }
+
+    It 'backs up a profile that has a ChromeProfileBackup folder next to other items' {
+        $null = New-Item -ItemType Directory -Path (Join-Path $chromeProfile 'ChromeProfileBackup') -Force
+        Set-Content -LiteralPath (Join-Path $chromeProfile 'ChromeProfileBackup/note.txt') -Value 'x'
+
+        $result = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorAction Stop
+
+        $result.Name | Should -Be 'ChromeProfileBackup.zip'
+    }
+
     It 'replaces an existing backup zip' {
         $null = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile
         Set-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') -Value 'second'

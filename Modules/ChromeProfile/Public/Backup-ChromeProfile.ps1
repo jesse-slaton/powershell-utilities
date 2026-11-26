@@ -13,7 +13,10 @@ function Backup-ChromeProfile {
         folder. Outputs the zip file (a FileInfo object).
 
         A missing profile folder, or a failure to create the folder or the zip, writes a
-        non-terminating error and outputs nothing.
+        non-terminating error and outputs nothing. So does a folder whose only top-level item is
+        a folder named ChromeProfileBackup: Restore-ChromeProfile would read that zip as the
+        old backup script's layout and refuse it (a real Chrome profile always has files at its
+        root).
 
         Formerly Scripts/FileSystem/ChromeProfileBackup.ps1 (removed; no deployment tool used
         that path). That script copied the profile to a staging folder first and zipped the
@@ -77,6 +80,12 @@ function Backup-ChromeProfile {
         $source = Join-Path ([System.Management.Automation.WildcardPattern]::Escape($ProfilePath)) '*'
         # -DestinationPath has no literal form; Compress-Archive unescapes it to a provider path first.
         $null = Compress-Archive -Path $source -DestinationPath ([System.Management.Automation.WildcardPattern]::Escape($tempZip)) -ErrorAction Stop
+        # Restore-ChromeProfile refuses a zip whose every entry is under a ChromeProfileBackup folder
+        # (the old script's layout). Check the zip as written, so it never replaces a good backup
+        # with one that cannot be restored. A real Chrome profile always has files at its root.
+        if (Test-ChromeLegacyBackupZip -Path $tempZip) {
+            throw "every item in the backup is under a folder named ChromeProfileBackup, so Restore-ChromeProfile would read it as the old backup layout and it could not be restored. Back up the folder that holds the profile files instead."
+        }
         Move-Item -LiteralPath $tempZip -Destination $zipFile -Force -ErrorAction Stop
         Get-Item -LiteralPath $zipFile
     }

@@ -75,23 +75,7 @@ function Restore-ChromeProfile {
     # did not create is never written to or deleted.
     $stagingPath = '{0}.partial-{1}' -f $ProfilePath, [guid]::NewGuid().ToString('N').Substring(0, 8)
     try {
-        # The old ChromeProfileBackup.ps1 zipped a staging folder, so every entry sits under a
-        # ChromeProfileBackup root (5.1 Compress-Archive writes '\' separators, 7 writes '/').
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $archive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $zipFile).ProviderPath)
-        try {
-            $entries = @($archive.Entries)
-            $legacy = $entries.Count -gt 0
-            foreach ($entry in $entries) {
-                if (-not ($entry.FullName.StartsWith('ChromeProfileBackup/', [System.StringComparison]::Ordinal) -or $entry.FullName.StartsWith('ChromeProfileBackup\', [System.StringComparison]::Ordinal))) {
-                    $legacy = $false
-                    break
-                }
-            }
-        }
-        finally {
-            $archive.Dispose()
-        }
+        $legacy = Test-ChromeLegacyBackupZip -Path (Resolve-Path -LiteralPath $zipFile).ProviderPath
         if (-not $legacy) {
             Write-Verbose "Restoring Chrome profile $ProfilePath from $zipFile"
             # Expand-Archive has no literal -DestinationPath and resolves it as a wildcard pattern,
