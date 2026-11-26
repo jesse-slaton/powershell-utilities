@@ -29,15 +29,38 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
     # A path such as .\Helper.psm1 resolves against the caller's current directory, not the
     # script's folder, so the script breaks when run from anywhere else (#120). Anchor such
     # paths to $PSScriptRoot (Join-Path $PSScriptRoot 'Helper.psm1') or import by module name.
-    # Import-Module is also checked by argument, so an extensionless module path (.\Helper,
-    # ..\Mods\Helper, lib\Helper) is caught directly, through a variable, or through a splat.
-    # Scripts are parsed, never run. Comments (including help examples) are not in the AST.
+    #
+    # One detector. It finds each LOADING SITE and asks one resolver whether the path given
+    # there is rooted in the current directory.
+    #   Loading sites: dot-source (. <path>), the call operator (& <path>), running a script
+    #     by path (.\x.ps1 -Arg), all three only for a .ps1/.psm1/.psd1 path (a literal, or a
+    #     Join-Path with such a child), and Import-Module / ipmo (-Name, -FullyQualifiedName, the
+    #     first positional argument, a splatted hashtable or array, pipeline input).
+    #   The resolver follows: string literals, "...\x" strings (by a leading .\ or a leading
+    #     variable), variables assigned with = anywhere in the file (scope-unaware), lists,
+    #     parentheses, casts, member access ($PWD.Path), ModuleSpecification hashtables,
+    #     Join-Path (by its parent path), $PWD, and Get-Location (pwd, gl). $PSScriptRoot and
+    #     $PSCommandPath anchor a path; a variable never assigned in the file ($env:X, a
+    #     parameter) is treated as unknown and passes.
+    #   A path counts as current-directory-rooted when it starts with .\ or ..\ (or is . or
+    #     ..), or is unrooted with a separator: lib\Helper for Import-Module, lib\x.ps1 for
+    #     . and &. A Join-Path parent counts when it is any unrooted path ('lib').
+    # NOT detected: native executables (.\tool.exe); a relative path used only by a
+    # non-loading command (Test-Path, Copy-Item, Get-Content, Get-Module -ListAvailable), or
+    # never used; paths handed to a child process (pwsh -File .\x.ps1, Start-Process);
+    # foreach/parameter-bound variables; string concatenation ('.\' + 'x.ps1'). Comments
+    # (including help examples) are not in the AST.
     # Manifests (.psd1) are not scanned: their RootModule, NestedModules and ScriptsToProcess
-    # paths resolve against the manifest's folder. 'using module .\x.psm1' is skipped for the
-    # same reason: it resolves against the script's folder.
+    # paths resolve against the manifest's folder. 'using module .\x.psm1' is not a loading
+    # site for the same reason: it resolves against the script's folder.
+    # Scripts are parsed, never run.
     BeforeAll {
-        $script:relativePattern = '^\.{1,2}[\\/].*\.ps[dm]?1$'
         $script:anchorVariables = @('PSScriptRoot', 'PSCommandPath')
+        $script:locationCommands = @('Get-Location', 'pwd', 'gl')
+        $script:scriptExtension = '\.ps[dm]?1$'
+        $script:importCommands = @('Import-Module', 'ipmo')
+        # Import-Module switches (5.1 and 7); every other Import-Module parameter takes a value.
+        $script:importSwitches = @('Global', 'Force', 'SkipEditionCheck', 'PassThru', 'AsCustomObject', 'DisableNameChecking', 'NoClobber', 'UseWindowsPowerShell', 'Verbose', 'Debug')
 
         function Test-AnchoredElement {
             # True when the AST element references $PSScriptRoot or $PSCommandPath.
@@ -51,20 +74,10 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             return ($null -ne $found)
         }
 
-        function Test-CurrentDirectoryElement {
-            # True when the AST element is the current directory: a '.' or '.\x' literal, $PWD,
-            # or a Get-Location (pwd, gl) call.
-            param([System.Management.Automation.Language.Ast]$Element)
-            if ($Element -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
-                $Element -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) {
-                if ($Element.Value -match '^\.{1,2}([\\/]|$)') { return $true }
-            }
-            $found = $Element.Find({
-                    param($node)
-                    ($node -is [System.Management.Automation.Language.VariableExpressionAst] -and $node.VariablePath.UserPath -eq 'PWD') -or
-                    ($node -is [System.Management.Automation.Language.CommandAst] -and @('Get-Location', 'pwd', 'gl') -contains $node.GetCommandName())
-                }, $true)
-            return ($null -ne $found)
+        function Test-ParameterPrefix {
+            # True when $Name is a prefix of $Full (PowerShell accepts unambiguous parameter prefixes).
+            param([string]$Full, [string]$Name)
+            return ($Name.Length -gt 0 -and $Full.StartsWith($Name, [System.StringComparison]::OrdinalIgnoreCase))
         }
 
         function Get-JoinPathParentElement {
@@ -95,26 +108,6 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             return $null
         }
 
-        $script:importCommands = @('Import-Module', 'ipmo')
-        # Import-Module switches (5.1 and 7); every other Import-Module parameter takes a value.
-        $script:importSwitches = @('Global', 'Force', 'SkipEditionCheck', 'PassThru', 'AsCustomObject', 'DisableNameChecking', 'NoClobber', 'UseWindowsPowerShell', 'Verbose', 'Debug')
-
-        function Test-ParameterPrefix {
-            # True when $Name is a prefix of $Full (PowerShell accepts unambiguous parameter prefixes).
-            param([string]$Full, [string]$Name)
-            return ($Name.Length -gt 0 -and $Full.StartsWith($Name, [System.StringComparison]::OrdinalIgnoreCase))
-        }
-
-        function Test-RelativeModulePath {
-            # True when a module name resolves against the current directory: .\x, ..\x, ./x, '.',
-            # or any unrooted name with a path separator (lib\x). Bare names such as Pester or
-            # Microsoft.PowerShell.Utility are looked up on PSModulePath and are not paths.
-            param([string]$Value)
-            if ($Value -match '^\.{1,2}([\\/]|$)') { return $true }
-            if ($Value -notmatch '[\\/]') { return $false }
-            return ($Value -notmatch '^([A-Za-z]:|[\\/]|~)')
-        }
-
         function Get-AssignedValue {
             # Returns the right-hand side of every assignment to $Name anywhere in the file.
             # Scope-unaware on purpose: any relative value ever assigned is suspect.
@@ -127,38 +120,89 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
                 }, $true) | ForEach-Object { $_.Right }
         }
 
-        function Test-RelativeModuleElement {
-            # True when an AST element given to Import-Module as a module name or specification
-            # resolves against the current directory. Follows lists, parentheses, Join-Path,
-            # ModuleSpecification hashtables, and variables assigned in the same file.
-            param($Element, [System.Management.Automation.Language.Ast]$Ast, [int]$Depth = 0)
+        function Test-RelativePathText {
+            # True when a literal path resolves against the current directory. $Mode is the use:
+            # Module (Import-Module: a bare name is looked up on PSModulePath, lib\x is a path),
+            # Command (. and &: only a .ps1/.psm1/.psd1 path counts; a bare name or Module\Command
+            # is a command, and an .exe is not a script dependency),
+            # Path (a Join-Path parent: any unrooted path, 'lib' included).
+            param([string]$Value, [string]$Mode)
+            if ($Mode -eq 'Command' -and $Value -notmatch $script:scriptExtension) { return $false }
+            if ($Value -match '^\.{1,2}([\\/]|$)') { return $true }
+            # Rooted: C:\, a PowerShell drive (Env:, HKLM:), \, /, \\server, or ~.
+            if ($Value -match '^([A-Za-z][\w.-]*:|[\\/]|~)') { return $false }
+            if ($Mode -eq 'Path') { return ($Value.Length -gt 0) }
+            if ($Value -notmatch '[\\/]') { return $false }
+            return $true
+        }
+
+        function Test-CurrentDirectoryPath {
+            # The resolver: true when the path expression $Element, used as $Mode (see
+            # Test-RelativePathText), is rooted in the current directory.
+            param($Element, [System.Management.Automation.Language.Ast]$Ast, [string]$Mode, [int]$Depth = 0)
             if ($null -eq $Element -or $Depth -gt 8) { return $false }
             $next = $Depth + 1
             if ($Element -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
-                return (Test-RelativeModulePath -Value $Element.Value)
+                return (Test-RelativePathText -Value $Element.Value -Mode $Mode)
             }
             if ($Element -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) {
-                # "$PSScriptRoot\x" or "$env:X\x" depend on a variable; only a leading .\ is known relative.
                 if (Test-AnchoredElement -Element $Element) { return $false }
-                return ($Element.Value -match '^\.{1,2}([\\/]|$)')
+                if ($Mode -eq 'Command' -and $Element.Value -notmatch $script:scriptExtension) { return $false }
+                if ($Element.Value -match '^\.{1,2}([\\/]|$)') { return $true }
+                # "$base\Helper.psm1": the leading variable is the parent folder.
+                $nested = @($Element.NestedExpressions)
+                if ($nested.Count -gt 0 -and $nested[0] -is [System.Management.Automation.Language.VariableExpressionAst] -and
+                    $Element.Value.StartsWith($nested[0].Extent.Text)) {
+                    return (Test-CurrentDirectoryPath -Element $nested[0] -Ast $Ast -Mode 'Path' -Depth $next)
+                }
+                return $false
             }
             if ($Element -is [System.Management.Automation.Language.VariableExpressionAst]) {
-                foreach ($value in @(Get-AssignedValue -Ast $Ast -Name $Element.VariablePath.UserPath)) {
-                    if (Test-RelativeModuleElement -Element $value -Ast $Ast -Depth $next) { return $true }
+                $name = $Element.VariablePath.UserPath
+                if ($script:anchorVariables -contains $name) { return $false }
+                if ($name -eq 'PWD') { return $true }
+                foreach ($value in @(Get-AssignedValue -Ast $Ast -Name $name)) {
+                    if (Test-CurrentDirectoryPath -Element $value -Ast $Ast -Mode $Mode -Depth $next) { return $true }
                 }
                 return $false
             }
             if ($Element -is [System.Management.Automation.Language.HashtableAst]) {
                 # A ModuleSpecification: @{ ModuleName = '.\x'; ModuleVersion = '1.0' }.
+                if ($Mode -ne 'Module') { return $false }
                 foreach ($pair in $Element.KeyValuePairs) {
-                    if ($pair.Item1.Value -eq 'ModuleName' -and (Test-RelativeModuleElement -Element $pair.Item2 -Ast $Ast -Depth $next)) { return $true }
+                    if ($pair.Item1.Value -eq 'ModuleName' -and (Test-CurrentDirectoryPath -Element $pair.Item2 -Ast $Ast -Mode $Mode -Depth $next)) { return $true }
                 }
                 return $false
             }
             if ($Element -is [System.Management.Automation.Language.CommandAst]) {
-                if ($Element.GetCommandName() -ne 'Join-Path') { return $false }
-                $parentPath = Get-JoinPathParentElement -Command $Element
-                return ($null -ne $parentPath -and -not (Test-AnchoredElement -Element $parentPath) -and (Test-CurrentDirectoryElement -Element $parentPath))
+                $command = $Element.GetCommandName()
+                if ($command -eq 'Join-Path') {
+                    $parentPath = Get-JoinPathParentElement -Command $Element
+                    if ($Mode -eq 'Command') {
+                        # Run with . or &, the joined path must name a script, not an .exe.
+                        $scriptChild = @($Element.CommandElements | Select-Object -Skip 1 | Where-Object {
+                                $_ -ne $parentPath -and $_ -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+                                $_.Value -match $script:scriptExtension
+                            })
+                        if ($scriptChild.Count -eq 0) { return $false }
+                    }
+                    return (Test-CurrentDirectoryPath -Element $parentPath -Ast $Ast -Mode 'Path' -Depth $next)
+                }
+                if ($script:locationCommands -contains $command) { return $true }
+                # Any other command (Split-Path (Get-Location), ...): relative only when it is
+                # fed $PWD or Get-Location and is not anchored.
+                if (Test-AnchoredElement -Element $Element) { return $false }
+                $locations = $script:locationCommands
+                $found = $Element.Find({
+                        param($node)
+                        ($node -is [System.Management.Automation.Language.VariableExpressionAst] -and $node.VariablePath.UserPath -eq 'PWD') -or
+                        ($node -is [System.Management.Automation.Language.CommandAst] -and $locations -contains $node.GetCommandName())
+                    }, $true)
+                return ($null -ne $found)
+            }
+            if ($Element -is [System.Management.Automation.Language.MemberExpressionAst]) {
+                # $PWD.Path, (Get-Location).Path: the object the member is read from.
+                return (Test-CurrentDirectoryPath -Element $Element.Expression -Ast $Ast -Mode 'Path' -Depth $next)
             }
             $children = @()
             if ($Element -is [System.Management.Automation.Language.ArrayLiteralAst]) { $children = $Element.Elements }
@@ -168,7 +212,7 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             elseif ($Element -is [System.Management.Automation.Language.ConvertExpressionAst]) { $children = @($Element.Child) }
             elseif ($Element -is [System.Management.Automation.Language.PipelineAst] -and $Element.PipelineElements.Count -eq 1) { $children = $Element.PipelineElements }
             foreach ($child in $children) {
-                if (Test-RelativeModuleElement -Element $child -Ast $Ast -Depth $next) { return $true }
+                if (Test-CurrentDirectoryPath -Element $child -Ast $Ast -Mode $Mode -Depth $next) { return $true }
             }
             return $false
         }
@@ -187,12 +231,12 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
                     $name = $element.ParameterName
                     $isModule = (Test-ParameterPrefix -Full 'Name' -Name $name) -or (Test-ParameterPrefix -Full 'FullyQualifiedName' -Name $name)
                     if ($null -ne $element.Argument) {
-                        if ($isModule -and (Test-RelativeModuleElement -Element $element.Argument -Ast $Ast)) { return $true }
+                        if ($isModule -and (Test-CurrentDirectoryPath -Element $element.Argument -Ast $Ast -Mode 'Module')) { return $true }
                         $i++
                         continue
                     }
                     if ($isModule) {
-                        if ($i + 1 -lt $elements.Count -and (Test-RelativeModuleElement -Element $elements[$i + 1] -Ast $Ast)) { return $true }
+                        if ($i + 1 -lt $elements.Count -and (Test-CurrentDirectoryPath -Element $elements[$i + 1] -Ast $Ast -Mode 'Module')) { return $true }
                         $i += 2
                         continue
                     }
@@ -207,16 +251,16 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
                             foreach ($pair in $splat.KeyValuePairs) {
                                 $key = [string]$pair.Item1.Value
                                 if (((Test-ParameterPrefix -Full 'Name' -Name $key) -or (Test-ParameterPrefix -Full 'FullyQualifiedName' -Name $key)) -and
-                                    (Test-RelativeModuleElement -Element $pair.Item2 -Ast $Ast)) { return $true }
+                                    (Test-CurrentDirectoryPath -Element $pair.Item2 -Ast $Ast -Mode 'Module')) { return $true }
                             }
-                        } elseif ($null -ne $splat -and (Test-RelativeModuleElement -Element $splat -Ast $Ast)) { return $true }
+                        } elseif ($null -ne $splat -and (Test-CurrentDirectoryPath -Element $splat -Ast $Ast -Mode 'Module')) { return $true }
                     }
                     $i++
                     continue
                 }
                 if (-not $positionalSeen) {
                     $positionalSeen = $true
-                    if (Test-RelativeModuleElement -Element $element -Ast $Ast) { return $true }
+                    if (Test-CurrentDirectoryPath -Element $element -Ast $Ast -Mode 'Module') { return $true }
                 }
                 $i++
             }
@@ -224,14 +268,25 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             $pipeline = $Command.Parent
             if ($pipeline -is [System.Management.Automation.Language.PipelineAst]) {
                 $index = $pipeline.PipelineElements.IndexOf($Command)
-                if ($index -gt 0 -and (Test-RelativeModuleElement -Element $pipeline.PipelineElements[$index - 1] -Ast $Ast)) { return $true }
+                if ($index -gt 0 -and (Test-CurrentDirectoryPath -Element $pipeline.PipelineElements[$index - 1] -Ast $Ast -Mode 'Module')) { return $true }
             }
             return $false
         }
 
+        function Test-RelativeLoadSite {
+            # True when a command is a loading site whose path is rooted in the current
+            # directory. The first element of a command is what runs: the script or command
+            # after . or &, or a script path typed as the command name (.\x.ps1 -Arg).
+            param([System.Management.Automation.Language.CommandAst]$Command, [System.Management.Automation.Language.Ast]$Ast)
+            if (Test-CurrentDirectoryPath -Element $Command.CommandElements[0] -Ast $Ast -Mode 'Command') { return $true }
+            if ($script:importCommands -contains $Command.GetCommandName()) { return (Test-RelativeImportCommand -Command $Command -Ast $Ast) }
+            return $false
+        }
+
         function Get-RelativeImportOffender {
-            # Lists 'file:line: text' for every working-directory-relative script path under
-            # <Root>/Scripts and <Root>/Modules, and 'file: parse error ...' for unparsable files.
+            # Lists 'file:line: text' for every loading site under <Root>/Scripts and
+            # <Root>/Modules that uses a working-directory-relative path, and
+            # 'file:line: parse error ...' for unparsable files.
             param([string]$Root)
             $folders = @('Scripts', 'Modules') | ForEach-Object { Join-Path $Root $_ } | Where-Object { Test-Path -LiteralPath $_ }
             if (-not $folders) { return }
@@ -246,51 +301,10 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
                     '{0}:{1}: parse error: {2}' -f $relative, $parseErrors[0].Extent.StartLineNumber, $parseErrors[0].Message
                     continue
                 }
-                $strings = $ast.FindAll({
-                        param($node)
-                        $node -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
-                        $node -is [System.Management.Automation.Language.ExpandableStringExpressionAst]
-                    }, $true)
-                foreach ($string in $strings) {
-                    if ($string.Value -notmatch $script:relativePattern) { continue }
-                    $parent = $string.Parent
-                    if ($parent -is [System.Management.Automation.Language.UsingStatementAst]) { continue }
-                    # Join-Path $PSScriptRoot '.\x.psm1' is anchored, so its child path is fine.
-                    # Any other parent path (., $PWD, '.\lib') is still relative to the caller.
-                    if ($parent -is [System.Management.Automation.Language.CommandAst] -and $parent.GetCommandName() -eq 'Join-Path') {
-                        $parentPath = Get-JoinPathParentElement -Command $parent
-                        if ($null -ne $parentPath -and $parentPath -ne $string -and (Test-AnchoredElement -Element $parentPath)) { continue }
-                    }
-                    '{0}:{1}: {2}' -f $relative, $string.Extent.StartLineNumber, $string.Extent.Text
-                }
-                # Join-Path '.\lib' 'Helper.psm1' or Join-Path $PWD 'Helper.psm1': no single string
-                # is a .\ path, but the parent path is the current directory.
-                $joins = $ast.FindAll({
-                        param($node)
-                        $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Join-Path'
-                    }, $true)
-                foreach ($join in $joins) {
-                    $parentPath = Get-JoinPathParentElement -Command $join
-                    if ($null -eq $parentPath -or -not (Test-CurrentDirectoryElement -Element $parentPath)) { continue }
-                    $children = @($join.CommandElements | Select-Object -Skip 1 | Where-Object {
-                            $_ -ne $parentPath -and
-                            ($_ -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
-                            $_ -is [System.Management.Automation.Language.ExpandableStringExpressionAst])
-                        })
-                    # A .\ child is already reported by the string check above.
-                    if (@($children | Where-Object { $_.Value -match $script:relativePattern }).Count -gt 0) { continue }
-                    if (@($children | Where-Object { $_.Value -match '\.ps[dm]?1$' }).Count -eq 0) { continue }
-                    '{0}:{1}: {2}' -f $relative, $join.Extent.StartLineNumber, $join.Extent.Text
-                }
-                # Import-Module .\Helper, -Name ..\Mods\Helper, a variable or splat: a module
-                # folder or name has no extension, so the string checks above miss it.
-                $imports = $ast.FindAll({
-                        param($node)
-                        $node -is [System.Management.Automation.Language.CommandAst] -and $script:importCommands -contains $node.GetCommandName()
-                    }, $true)
-                foreach ($import in $imports) {
-                    if (Test-RelativeImportCommand -Command $import -Ast $ast) {
-                        '{0}:{1}: {2}' -f $relative, $import.Extent.StartLineNumber, $import.Extent.Text
+                $commands = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)
+                foreach ($command in $commands) {
+                    if (Test-RelativeLoadSite -Command $command -Ast $ast) {
+                        '{0}:{1}: {2}' -f $relative, $command.Extent.StartLineNumber, $command.Extent.Text
                     }
                 }
             }
@@ -327,6 +341,16 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = 'a relative -FullyQualifiedName ModuleName'; Code = 'Import-Module -FullyQualifiedName @{ ModuleName = ''.\Helper''; ModuleVersion = ''1.0'' }' }
             @{ Name = 'a relative path piped to Import-Module'; Code = '''.\Helper'' | Import-Module' }
             @{ Name = 'an extensionless Join-Path from $PWD'; Code = 'Import-Module (Join-Path $PWD ''Helper'')' }
+            @{ Name = 'Join-Path from a variable holding $PWD'; Code = "`$base = `$PWD`nImport-Module (Join-Path `$base 'Helper.psm1')" }
+            @{ Name = 'Join-Path from a variable holding .'; Code = "`$base = '.'`nImport-Module (Join-Path `$base 'Helper.psm1')" }
+            @{ Name = 'Join-Path from a variable holding Get-Location'; Code = "`$base = Get-Location`n. (Join-Path `$base 'Helper.ps1')" }
+            @{ Name = 'Join-Path from a variable holding (Get-Location).Path'; Code = "`$base = (Get-Location).Path`nImport-Module (Join-Path -Path `$base -ChildPath 'Helper')" }
+            @{ Name = 'an interpolated path from a variable holding $PWD'; Code = "`$base = `$PWD`n. `"`$base\Helper.ps1`"" }
+            @{ Name = 'the call operator on a dot-slash script'; Code = '& .\Helper.ps1' }
+            @{ Name = 'a dot-slash script run by name'; Code = '.\Helper.ps1 -Verbose' }
+            @{ Name = 'a dot-source through a variable'; Code = "`$helper = '.\Helper.ps1'`n. `$helper" }
+            @{ Name = 'the call operator through a Join-Path variable'; Code = "`$helper = Join-Path `$PWD 'Helper.ps1'`n& `$helper" }
+            @{ Name = 'a dot-source of an unrooted script path'; Code = '. lib\Helper.ps1' }
         ) {
             param($Name, $Code)
             $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
@@ -351,6 +375,20 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = 'Get-Module -ListAvailable on a relative path'; Code = 'Get-Module -ListAvailable -Name .\Helper' }
             @{ Name = 'a relative variable that is never imported'; Code = "`$helper = '.\Helper'`nGet-Item `$helper`nImport-Module Pester" }
             @{ Name = 'a relative -Prefix value'; Code = 'Import-Module -Prefix ./X -Name Pester' }
+            @{ Name = 'Test-Path on a dot-slash script'; Code = 'Test-Path -LiteralPath ''.\Helper.ps1''' }
+            @{ Name = 'Copy-Item of a dot-slash script'; Code = "`$dest = 'C:\Temp'`nCopy-Item '.\Helper.ps1' `$dest" }
+            @{ Name = 'Get-Content of a dot-slash script'; Code = 'Get-Content .\Helper.psm1' }
+            @{ Name = 'a dot-slash script path assigned and never loaded'; Code = '$helper = ''.\Helper.ps1''' }
+            @{ Name = 'a dot-slash script variable used only by Test-Path'; Code = "`$helper = '.\Helper.ps1'`nTest-Path `$helper" }
+            @{ Name = 'a Join-Path from $PWD that is never loaded'; Code = "`$out = Join-Path `$PWD 'Report.ps1'`nSet-Content -Path `$out -Value 'x'" }
+            @{ Name = 'Join-Path from a variable holding $PSScriptRoot'; Code = "`$base = `$PSScriptRoot`n. (Join-Path `$base 'Helper.ps1')" }
+            @{ Name = 'Join-Path from an unassigned variable'; Code = 'Import-Module (Join-Path $env:ProgramFiles ''Helper'')' }
+            @{ Name = 'a dot-source of an interpolated $PSScriptRoot path'; Code = '. $PSScriptRoot\Helper.ps1' }
+            @{ Name = 'the call operator on a Join-Path $PSScriptRoot script'; Code = '& (Join-Path $PSScriptRoot ''Helper.ps1'')' }
+            @{ Name = 'the call operator on a module-qualified command'; Code = '& ''Microsoft.PowerShell.Utility\Write-Output'' x' }
+            @{ Name = 'the call operator on a script block'; Code = '& { Get-Item .\Helper.ps1 }' }
+            @{ Name = 'a dot-slash native executable'; Code = '.\devcon.exe find =display' }
+            @{ Name = 'the call operator on a Join-Path $PWD executable'; Code = '& (Join-Path $PWD ''tool.exe'') /q' }
         ) {
             param($Name, $Code)
             $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
