@@ -102,9 +102,10 @@ function Expand-ChromeBackupZip {
     .DESCRIPTION
         Checks every entry first: an entry whose full path is not inside the destination folder
         (a '..' segment or an absolute path, "zip-slip") makes it throw before anything is
-        written. Then extracts from the same open archive (so the zip cannot be swapped between
-        the check and the extraction), which takes literal paths and restores hidden files and
-        empty folders. The destination must not exist or must be
+        written. Then extracts each entry from the same open archive (so the zip cannot be swapped
+        between the check and the extraction) to that checked path, with '\' and '/' both read as
+        folder separators on every platform; literal paths, hidden files and empty folders are
+        kept. The destination must not exist or must be
         empty: Windows PowerShell 5.1 (.NET Framework) has no overwrite overload, and the caller
         always extracts into a fresh staging folder. Both paths are made absolute first (.NET
         resolves a relative path against the process working directory). Throws on failure.
@@ -143,17 +144,28 @@ function Expand-ChromeBackupZip {
     # only, so it cannot be replaced between the two, and what is extracted is what was checked.
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
     try {
-        foreach ($entry in $archive.Entries) {
+        $targets = foreach ($entry in $archive.Entries) {
+            # Both separators count: Windows PowerShell 5.1's Compress-Archive wrote '\', and on
+            # macOS/Linux .NET would otherwise keep a '\' as part of the file name.
             $relative = $entry.FullName.Replace('\', [string][System.IO.Path]::DirectorySeparatorChar).Replace('/', [string][System.IO.Path]::DirectorySeparatorChar)
             $full = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($destination, $relative))
             if (-not ($full.StartsWith($prefix, $comparison) -or $full.Equals($destination, $comparison))) {
                 throw "zip entry '$($entry.FullName)' would be extracted outside the destination folder"
             }
+            [pscustomobject]@{ Entry = $entry; Path = $full; IsFolder = $relative.EndsWith([string][System.IO.Path]::DirectorySeparatorChar) }
         }
-        # An entry-less zip makes ExtractToDirectory create nothing on .NET (Core); the caller
-        # renames the folder into place, so it must exist.
+        # The caller renames the folder into place, so it must exist even for an entry-less zip.
         $null = [System.IO.Directory]::CreateDirectory($destination)
-        [System.IO.Compression.ZipFileExtensions]::ExtractToDirectory($archive, $destination)
+        # Each entry goes to the normalized path checked above, never to its raw name.
+        foreach ($target in $targets) {
+            if ($target.IsFolder) {
+                $null = [System.IO.Directory]::CreateDirectory($target.Path)
+            }
+            else {
+                $null = [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($target.Path))
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($target.Entry, $target.Path, $false)
+            }
+        }
     }
     finally {
         $archive.Dispose()

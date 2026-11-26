@@ -465,6 +465,35 @@ Describe 'Restore-ChromeProfile' {
         @(Get-ChildItem -LiteralPath $chromeProfile -Force) | Should -BeNullOrEmpty
     }
 
+    It 'restores a zip whose entries use <Separator> separators into real folders on every platform' -TestCases @(
+        @{ Separator = '/' }
+        @{ Separator = '\' }
+    ) {
+        param($Separator)
+        # The module's own layout (contents at the zip root), as Compress-Archive on Windows
+        # PowerShell 5.1 wrote it with '\' separators.
+        $null = New-Item -ItemType Directory -Path $backup -Force
+        Add-Type -AssemblyName System.IO.Compression
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::Open($zip, [System.IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($name in 'Bookmarks', ('Extensions' + $Separator + 'marker.txt')) {
+                $writer = New-Object System.IO.StreamWriter(($archive.CreateEntry($name)).Open())
+                try { $writer.Write('sep') } finally { $writer.Dispose() }
+            }
+            $null = $archive.CreateEntry('Empty Folder' + $Separator)
+        }
+        finally { $archive.Dispose() }
+
+        $result = Restore-ChromeProfile -Path $backup -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
+
+        "$err" | Should -BeNullOrEmpty
+        $result | Should -BeOfType System.IO.DirectoryInfo
+        Get-Content -LiteralPath (Join-Path $chromeProfile 'Extensions/marker.txt') | Should -Be 'sep'
+        Test-Path -LiteralPath (Join-Path $chromeProfile 'Empty Folder') -PathType Container | Should -BeTrue
+        @(Get-ChildItem -LiteralPath $chromeProfile -Force -Recurse | Where-Object { $_.Name -like '*\*' }) | Should -BeNullOrEmpty -Because 'a separator must never end up inside a file name'
+    }
+
     It 'refuses a zip in the old backup script layout (<Separator> separators), keeping it and creating nothing' -TestCases @(
         @{ Separator = '/' }
         @{ Separator = '\' }
