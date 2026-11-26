@@ -1,7 +1,8 @@
 # Archived scripts
 
 Scripts removed from `main` because the product they depend on is no longer in use,
-or because they cannot run as written. They are kept in git history: restore one with
+because they cannot run as written, or because a module function now does their job. Each
+section says which. They are kept in git history: restore one with
 `git show <commit>:"<path>" > "<file>"`, using the last commit listed in its section, or browse
 `https://github.com/jesse-slaton/powershell-utilities/tree/<commit>`.
 
@@ -32,3 +33,12 @@ cannot run. Last commit that has them: `293649f0ab13`.
 | Path | What it did |
 |---|---|
 | `Scripts/System/MainCleanupScript.ps1` | Ran recycle bin, temporary file, DISM and CCM cache cleanup as a timed background job. Every cleanup step lived in `CleanupFunctions.psm1`, which was never committed, and no copy survives outside the repo either (a search of the original Windows machine found none), so the script cannot be ported. |
+
+## Superseded by the OfficeC2R module (#45, 2026-11)
+
+These scripts did the same job as a function in `Modules/OfficeC2R`, so they were removed
+rather than ported. Last commit that has them: `741cebd003d0`.
+
+| Path | What it did | Use instead |
+|---|---|---|
+| `Scripts/Office/GetOffice365Channel-Package.ps1` | Output the Office Click-to-Run update channel name from CDNBaseUrl, relaunching itself in 64-bit Windows PowerShell when started from 32-bit PowerShell. | `Get-OfficeC2RChannel`, which reads the 64-bit registry view directly and also knows DevMain Channel. |
