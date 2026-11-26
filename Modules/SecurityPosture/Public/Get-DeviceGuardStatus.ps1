@@ -10,8 +10,11 @@ function Get-DeviceGuardStatus {
         7 MBEC/GMET, 8 APIC Virtualization; any other value becomes 'Unknown (<value>)'). Returns one object with the string
         arrays AvailableSecurityProperties and RequiredSecurityProperties. With -AsString it
         returns the legacy line '<available>|<required>', the names in each part separated by
-        spaces. If Win32_DeviceGuard cannot be read (for example before Windows 10), it writes
-        a non-terminating error and returns nothing. Read-only.
+        spaces. On an operating system older than Windows 10 (version 10.0) Win32_DeviceGuard
+        does not exist: the function writes a warning and returns nothing, or returns 'N/A'
+        with -AsString, the same as Get-DeviceGuardSecurityProperty. If Win32_DeviceGuard or
+        Win32_OperatingSystem cannot be read, it writes a non-terminating error and returns
+        nothing. Read-only.
 
         Replaces Scripts/Security/Get-DeviceGuardStatus.ps1, which wrote the line with
         Write-Host and translated the required part with the available loop's last value.
@@ -41,6 +44,19 @@ function Get-DeviceGuardStatus {
     param(
         [switch]$AsString
     )
+
+    try {
+        $osVersion = Get-SecurityPostureOSVersion
+    }
+    catch {
+        Write-Error -Message "Failed to read the operating system version: $($_.Exception.Message)" -Category ReadError
+        return
+    }
+    if ($osVersion -lt [version]'10.0') {
+        if ($AsString) { return 'N/A' }
+        Write-Warning "Device Guard needs Windows 10 or later; this computer runs $osVersion."
+        return
+    }
 
     try {
         $deviceGuard = Get-DeviceGuardInstance

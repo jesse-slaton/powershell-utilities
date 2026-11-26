@@ -95,6 +95,7 @@ Describe 'Get-DeviceGuardSecurityProperty' {
 
 Describe 'Get-DeviceGuardStatus' {
     BeforeEach {
+        Mock Get-SecurityPostureOSVersion -ModuleName SecurityPosture { [version]'10.0.19045' }
         Mock Get-DeviceGuardInstance -ModuleName SecurityPosture {
             [pscustomobject]@{
                 AvailableSecurityProperties = [uint32[]]@(1, 2, 3)
@@ -137,6 +138,29 @@ Describe 'Get-DeviceGuardStatus' {
         $result = Get-DeviceGuardStatus -ErrorVariable errs -ErrorAction SilentlyContinue
         $result | Should -BeNullOrEmpty
         "$($errs[-1])" | Should -Match 'Win32_DeviceGuard.*Invalid class'
+    }
+
+    It 'returns N/A with -AsString before Windows 10 and does not read Win32_DeviceGuard' {
+        Mock Get-SecurityPostureOSVersion -ModuleName SecurityPosture { [version]'6.3.9600' }
+        Get-DeviceGuardStatus -AsString | Should -Be 'N/A'
+        Should -Invoke Get-DeviceGuardInstance -ModuleName SecurityPosture -Times 0 -Exactly
+    }
+
+    It 'warns and returns nothing without -AsString before Windows 10' {
+        Mock Get-SecurityPostureOSVersion -ModuleName SecurityPosture { [version]'6.1.7601' }
+        $result = Get-DeviceGuardStatus -WarningVariable warnings -WarningAction SilentlyContinue -ErrorVariable errs -ErrorAction SilentlyContinue
+        $result | Should -BeNullOrEmpty
+        $errs | Should -BeNullOrEmpty
+        $warnings | Should -HaveCount 1
+        "$warnings" | Should -Match 'Windows 10'
+        Should -Invoke Get-DeviceGuardInstance -ModuleName SecurityPosture -Times 0 -Exactly
+    }
+
+    It 'writes a non-terminating error when the OS version cannot be read' {
+        Mock Get-SecurityPostureOSVersion -ModuleName SecurityPosture { throw 'RPC unavailable' }
+        $result = Get-DeviceGuardStatus -ErrorVariable errs -ErrorAction SilentlyContinue
+        $result | Should -BeNullOrEmpty
+        "$($errs[-1])" | Should -Match 'operating system version.*RPC unavailable'
     }
 }
 
