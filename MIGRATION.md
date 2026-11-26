@@ -54,8 +54,8 @@ Retirement moves and ports happen in follow-up issues; no script is changed by t
 
 | Decision | Files |
 |---|---|
-| keep | 58 |
-| port | 3 |
+| keep | 59 |
+| port | 2 |
 | port via module issue | 25 |
 | retire | 53 |
 | retire via module issue | 6 |
@@ -199,7 +199,7 @@ Module issues: #44 ChromeProfile, #45 OfficeC2R, #46 SecurityPosture, #47 Storag
 | `Scripts/System/HWImageInfoSensor.ps1` | PSSA: none. Registry read and Write-Host fine on 7.x; Write-Host -ErrorAction Stop (l.40,44) is meaningless on every version | retire | Reports imaging details from an org registry key. Org-specific - reads a registry key written only by an internal imaging process (l.28) |
 | `Scripts/System/MainCleanupScript.ps1` | PSSA: none. Start-Job with $using: (l.85,111) fine on 7.x; depends on CleanupFunctions.psm1 which is not tracked in the repo (l.60) | see #120 | Runs tiered disk cleanup jobs with resume state. Disposition tracked in #120 |
 | `Scripts/System/parseCBSCSV.ps1` | PSSA: none. Import-Csv and DateTime.Parse fine on 7.x | retire | Converts a parsed CBS CSV into pipe-delimited age lines. Broken/incomplete - consumes a hard-coded CSV (l.28) produced by a parser that is not in the repo |
-| `Scripts/System/PSWindowsUpdateModule-Package.ps1` | PSSA: false positive (Set-ItemProperty -Type dynamic param, l.36-37). .NET Framework SchUseStrongCrypto keys and ServicePointManager TLS (l.36-38) do nothing for 7.x networking; WebClient proxy (l.34-35) obsolete; Register-PSRepository with PSGallery name (l.40) errors | port S | Installs PSWindowsUpdate from the Gallery if missing. Replace the PowerShellGet bootstrap with Install-PSResource and drop the .NET Framework TLS plumbing |
+| `Scripts/System/PSWindowsUpdateModule-Package.ps1` | none after the #132 port; PSSA: none | keep (ported in #132) | Installs PSWindowsUpdate from the Gallery if missing. Uses Install-PSResource; only Windows PowerShell 5.1 without PSResourceGet falls back to Install-Module, adding TLS 1.2 for that process alone, and PowerShell 7 without PSResourceGet stops with an error. No .NET Framework registry writes, no WebClient proxy, no Register-PSRepository |
 | `Scripts/System/Remove_All_Versions_of_Microstrategy-Package.ps1` | PSSA: none. SessionEnding handler stops processes named Powershell (l.249), which misses pwsh on 7.x; uses $Uninstalls not $Uninstall (l.214); Write-Error -Exception [Environment]::Exit (l.232) is broken on every version | retire | Silently uninstalls all MicroStrategy Enterprise versions. Org-specific - single-app deployment package with hard-coded internal tooling log paths (l.55,212), and broken multi-match logic |
 | `Scripts/System/Remove_All_Versions_of_TM1_Add-in_for_Excel.ps1` | PSSA: none. Start-Process, Remove-Item, System.IO.File fine on 7.x | retire | Uninstalls the IBM TM1 Excel add-in and leftovers. Org-specific - one-vendor add-in removal package for internal deployment, hard-coded install paths (l.31-37) |
 | `Scripts/System/Remove_All_Versions_of_Zoom_Outlook_Plugin-Package.ps1` | PSSA: none. SessionEnding handler targets Powershell process name only (l.256); Write-Error -Exception [Environment]::Exit (l.239) broken on every version | retire | Silently uninstalls all Zoom Outlook Plugin versions via msiexec. Obsolete product - Zoom retired the Outlook plugin in favour of the Outlook add-in; also hard-coded internal log paths (l.55,211) |
