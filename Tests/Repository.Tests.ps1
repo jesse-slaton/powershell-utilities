@@ -37,8 +37,13 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
     # (.\x.ps1 -Arg), and Import-Module / ipmo (-Name, -FullyQualifiedName, every positional
     # argument, a splatted hashtable or array, pipeline input). Command names match in any case
     # and with a module qualifier (My-Tools\Import-Module); parameters match by unambiguous
-    # prefix, by alias and in -Name:value form. A parameter the check does not know to take a
-    # value is read as a switch, so the argument after it is still checked (-vb .\x fails).
+    # prefix, by alias and in -Name:value form. A command held in a variable or built from
+    # strings (& $cmd, & ('Import-' + 'Module')) is resolved first, and an Import-Module it
+    # resolves to is checked like any other. A splat fails when a hashtable key cannot be
+    # resolved (@{ $key = ... }) or when a member or index write reaches the hashtable through
+    # any copy of it ($copy = $original; $copy.Name = ...). A parameter the check does not
+    # know to take a value is read as a switch, so the argument after it is still checked
+    # (-vb .\x fails).
     # Every expression is first unwrapped from ( ), $( ), @( ), a cast and a one-element pipeline.
     #
     # A path PASSES when it is:
@@ -52,7 +57,8 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
     #       (-Path when named, else the first positional) is one, or a + chain whose first
     #       operand is one.
     #   (c) absolute: C:\x, C:/x, \\server\share\x, a PowerShell drive (Env:, TestDrive:\x),
-    #       a provider path (FileSystem::), or ~. As a Join-Path parent a bare C: also passes.
+    #       a provider path whose part after :: is itself absolute (FileSystem::C:\x; but
+    #       FileSystem::.\x is relative), or ~. As a Join-Path parent a bare C: also passes.
     #   (d) rooted in the environment: $env:windir, $env:ProgramFiles, ...,
     #       [Environment]::GetFolderPath(...), [Environment]::SystemDirectory, $PSHOME, $HOME.
     #   (e) a variable whose EVERY assignment in the file is itself allowed. Scope qualifiers are
@@ -408,7 +414,10 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
         function Test-AbsoluteText {
             # Rule (c): text that starts at a fixed root, never the current directory.
             param([string]$Text)
-            return ($Text -match '^([A-Za-z]:[\\/]|[\\/]{2}|[A-Za-z][\w.-]+:|[\w.\\-]+::|~([\\/]|$))')
+            # A provider qualifier (FileSystem::, Microsoft.PowerShell.Core\FileSystem::) roots
+            # nothing by itself: FileSystem::.\x is still .\x, so the part after :: decides.
+            if ($Text -match '^(?:[\w.-]+\\)?[\w.-]+::(.*)$') { return (Test-AbsoluteText -Text $Matches[1]) }
+            return ($Text -match '^([A-Za-z]:[\\/]|[\\/]{2}|[A-Za-z][\w.-]+:(?!:)|~([\\/]|$))')
         }
 
         function Test-RootItemSource {
@@ -654,6 +663,32 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             return , $sources.ToArray()
         }
 
+        function Get-AliasSet {
+            # Every variable that can hold the same hashtable as $Name: the closure of plain
+            # variable-to-variable copies ($copy = $original) in either direction.
+            param([string]$Name, [System.Management.Automation.Language.Ast]$Ast)
+            $copies = @(foreach ($node in $Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true)) {
+                    $right = Get-UnwrappedElement -Element $node.Right
+                    if ($node.Operator -eq [System.Management.Automation.Language.TokenKind]::Equals -and
+                        $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+                        $right -is [System.Management.Automation.Language.VariableExpressionAst]) {
+                        , @((Get-NormalizedVariableName -Variable $node.Left), (Get-NormalizedVariableName -Variable $right))
+                    }
+                })
+            $set = New-Object System.Collections.Generic.List[string]
+            $set.Add($Name)
+            do {
+                $grew = $false
+                foreach ($pair in $copies) {
+                    if (($set -contains $pair[0]) -ne ($set -contains $pair[1])) {
+                        foreach ($member in $pair) { if ($set -notcontains $member) { $set.Add($member) } }
+                        $grew = $true
+                    }
+                }
+            } while ($grew)
+            return , $set.ToArray()
+        }
+
         function Test-AllowedImport {
             # True when every module an Import-Module call can load is allowed: -Name,
             # -FullyQualifiedName, every positional argument, splatted values, and pipeline input.
@@ -663,13 +698,23 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             foreach ($key in @('Name', 'FullyQualifiedName')) { if ($binding.Named.ContainsKey($key)) { $candidates.Add($binding.Named[$key]) } }
             foreach ($element in @($binding.Positional)) { $candidates.Add($element) }
             foreach ($splat in @($binding.Splatted)) {
-                $sources = Get-SplatSource -Name (Get-NormalizedVariableName -Variable $splat) -Ast $Ast
+                $splatName = Get-NormalizedVariableName -Variable $splat
+                # A member or index write through any alias ($copy.Name = ...) changes them all.
+                foreach ($alias in (Get-AliasSet -Name $splatName -Ast $Ast)) {
+                    foreach ($write in @(Get-AssignedValue -Ast $Ast -Name $alias)) { if ($write.Kind -ne 'Value') { return $false } }
+                }
+                $sources = Get-SplatSource -Name $splatName -Ast $Ast
                 if ($null -eq $sources) { return $false }
                 foreach ($source in $sources) {
                     if ($source -is [System.Management.Automation.Language.HashtableAst]) {
                         foreach ($pair in $source.KeyValuePairs) {
-                            $key = Resolve-ParameterName -Name ([string]$pair.Item1.Value) -ValueParameters $script:importParameters -Aliases $script:importAliases
-                            if ($key -eq 'Name' -or $key -eq 'FullyQualifiedName') { $candidates.Add($pair.Item2) }
+                            # A key can be an expression (@{ $key = ... }); an unknown key could be Name.
+                            $keyValues = Get-StaticValue -Element $pair.Item1 -Ast $Ast
+                            if ($null -eq $keyValues) { return $false }
+                            foreach ($keyValue in $keyValues) {
+                                $key = Resolve-ParameterName -Name $keyValue -ValueParameters $script:importParameters -Aliases $script:importAliases
+                                if ($key -eq 'Name' -or $key -eq 'FullyQualifiedName') { $candidates.Add($pair.Item2) }
+                            }
                         }
                     } else { $candidates.Add($source) }
                 }
@@ -692,7 +737,16 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             # script path typed as the command name (.\x.ps1 -Arg).
             param([System.Management.Automation.Language.CommandAst]$Command, [System.Management.Automation.Language.Ast]$Ast)
             if (-not (Test-AllowedPath -Element $Command.CommandElements[0] -Ast $Ast -Mode 'Command')) { return $false }
-            if ($script:importCommands -contains (Get-BaseCommandName -Command $Command)) { return (Test-AllowedImport -Command $Command -Ast $Ast) }
+            $names = @(Get-BaseCommandName -Command $Command)
+            if ($null -eq $names[0]) {
+                # & $cmd, & ('Import-' + 'Module'): the command names the expression can hold. One
+                # that cannot be resolved already failed above unless it is code or a rooted path.
+                $values = Get-StaticValue -Element $Command.CommandElements[0] -Ast $Ast
+                $names = @(foreach ($value in @($values)) { $value -replace '^[A-Za-z][\w.-]*\\(?=[A-Za-z][\w-]*$)', '' })
+            }
+            foreach ($name in $names) {
+                if ($script:importCommands -contains $name) { return (Test-AllowedImport -Command $Command -Ast $Ast) }
+            }
             return $true
         }
 
@@ -881,6 +935,16 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = 'a foreach variable over Get-ChildItem of the current directory'; Code = "foreach (`$file in Get-ChildItem -Filter *.ps1) {`n. `$file.FullName`n}"; Line = 2 }
             @{ Name = 'a foreach over an anchored and a relative Get-ChildItem joined with +'; Code = "`$a = @(Get-ChildItem -Path `$PSScriptRoot)`n`$b = @(Get-ChildItem -Path 'Public')`nforeach (`$file in @(`$a + `$b)) {`n. `$file.FullName`n}"; Line = 4 }
             @{ Name = 'ForEach-Object over Get-ChildItem of a relative folder'; Code = 'Get-ChildItem lib -Filter *.ps1 | ForEach-Object { . $_.FullName }' }
+            # Round 6 findings, one or more fixtures each.
+            @{ Name = '4702824796: a member write through an alias of the splatted hashtable'; Code = "`$original = @{ Name = 'Pester' }`n`$copy = `$original`n`$copy.Name = '.\Helper.psm1'`nImport-Module @original" }
+            @{ Name = '4702824796: an index write through an alias of the splatted hashtable'; Code = "`$original = @{ Name = 'Pester' }`n`$copy = `$original`n`$copy['Name'] = '.\Helper.psm1'`nImport-Module @original" }
+            @{ Name = '4702824847: a FileSystem:: qualified dot-slash module path'; Code = 'Import-Module ''FileSystem::.\Helper.psm1''' }
+            @{ Name = '4702824847: a module-qualified provider path to a relative module'; Code = 'Import-Module ''Microsoft.PowerShell.Core\FileSystem::lib\Helper.psm1''' }
+            @{ Name = '4702824869: a splat key held in a variable'; Code = "`$key = 'Name'`n`$opts = @{ `$key = '.\Helper.psm1' }`nImport-Module @opts" }
+            @{ Name = '4702824869: a splat key that cannot be resolved'; Code = "`$opts = @{ `$unknown = 'Pester' }`nImport-Module @opts" }
+            @{ Name = '4702824887: Import-Module held in a variable'; Code = "`$cmd = 'Import-Module'`n& `$cmd .\Helper.psm1" }
+            @{ Name = '4702824887: ipmo held in a variable'; Code = "`$c = 'ipmo'`n& `$c .\Helper.psm1" }
+            @{ Name = '4702824887: a concatenated Import-Module name'; Code = '& (''Import-'' + ''Module'') .\Helper.psm1' }
         ) {
             param($Name, $Code, $Line)
             $offenders = Invoke-FixtureScan -Code $Code
@@ -979,6 +1043,15 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = 'ForEach-Object over Get-ChildItem of an anchored folder'; Code = 'Get-ChildItem "$PSScriptRoot\lib" -Filter *.ps1 | Where-Object { $_.Name -ne ''x.ps1'' } | ForEach-Object { . $_.FullName }' }
             @{ Name = 'a foreach over two Get-ChildItem results joined with +'; Code = "`$a = @(Get-ChildItem -Path (Join-Path `$PSScriptRoot 'Private') -Filter '*.ps1' -File -ErrorAction SilentlyContinue)`n`$b = @(Get-ChildItem -Path (Join-Path `$PSScriptRoot 'Public') -File)`nforeach (`$file in @(`$a + `$b)) {`n. `$file.FullName`n}" }
             @{ Name = 'a foreach variable over a list of module names'; Code = "foreach (`$m in @('Pester', 'PSScriptAnalyzer')) {`nImport-Module `$m`n}" }
+            # Round 6 findings, one or more fixtures each.
+            @{ Name = '4702824796: a member write to an unrelated hashtable'; Code = "`$original = @{ Name = 'Pester' }`n`$copy = `$original`n`$other = @{}`n`$other.Name = '.\Helper.psm1'`nImport-Module @copy" }
+            @{ Name = '4702824847: a FileSystem:: qualified absolute module path'; Code = 'Import-Module ''FileSystem::C:\Modules\Helper.psm1''' }
+            @{ Name = '4702824847: a module-qualified provider path to a UNC module'; Code = 'Import-Module ''Microsoft.PowerShell.Core\FileSystem::\\server\share\Helper.psm1''' }
+            @{ Name = '4702824847: a PowerShell-drive path still passes'; Code = '. ''Env:\Helper.ps1''' }
+            @{ Name = '4702824869: a splat key held in a constant variable naming a module'; Code = "`$key = 'Name'`n`$opts = @{ `$key = 'Pester' }`nImport-Module @opts" }
+            @{ Name = '4702824887: Import-Module held in a variable importing a module name'; Code = "`$cmd = 'Import-Module'`n& `$cmd Pester" }
+            @{ Name = '4702824887: a concatenated Import-Module name importing an anchored path'; Code = '& (''Import-'' + ''Module'') (Join-Path $PSScriptRoot ''Helper.psm1'')' }
+            @{ Name = '4702824887: a script block in a variable called with a relative argument'; Code = "`$work = { param(`$p) Get-Item `$p }`n& `$work .\Helper.psm1" }
         ) {
             param($Name, $Code)
             Invoke-FixtureScan -Code $Code | Should -BeNullOrEmpty
