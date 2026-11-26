@@ -12,9 +12,11 @@ function Restore-ChromeProfile {
 
         When the profile folder already exists, or the backup zip is missing, it writes a
         warning, changes nothing and outputs nothing. A zip in the old backup script's layout
-        (see below) writes a non-terminating error, keeps the zip and creates nothing. A failed
-        extraction removes the partly extracted folder, keeps the zip and writes a
-        non-terminating error.
+        (see below) writes a non-terminating error, keeps the zip and creates nothing. The zip is
+        extracted into a temporary sibling folder that is renamed into place, so a profile that
+        appears during the restore (Chrome creates one when it starts) is never written to or
+        deleted. A failed extraction removes only that temporary folder, keeps the zip and
+        writes a non-terminating error.
 
         Formerly Scripts/FileSystem/ChromeProfileRestore.ps1 (removed; no deployment tool used
         that path). A zip made by the old ChromeProfileBackup.ps1 holds everything under a
@@ -68,6 +70,10 @@ function Restore-ChromeProfile {
         return
     }
 
+    # Extract into a sibling folder this call creates, then rename it into place. The rename fails
+    # if the profile appeared meanwhile (Chrome creates one when it starts), so a profile this call
+    # did not create is never written to or deleted.
+    $stagingPath = '{0}.partial-{1}' -f $ProfilePath, [guid]::NewGuid().ToString('N').Substring(0, 8)
     try {
         # The old ChromeProfileBackup.ps1 zipped a staging folder, so every entry sits under a
         # ChromeProfileBackup root (5.1 Compress-Archive writes '\' separators, 7 writes '/').
@@ -90,12 +96,13 @@ function Restore-ChromeProfile {
             Write-Verbose "Restoring Chrome profile $ProfilePath from $zipFile"
             # Expand-Archive has no literal -DestinationPath and resolves it as a wildcard pattern,
             # so 'Profile [1]' could extract into an existing 'Profile 1'. ZipFile takes it as is.
-            [System.IO.Compression.ZipFile]::ExtractToDirectory((Resolve-Path -LiteralPath $zipFile).ProviderPath, $ProfilePath)
+            [System.IO.Compression.ZipFile]::ExtractToDirectory((Resolve-Path -LiteralPath $zipFile).ProviderPath, $stagingPath)
+            [System.IO.Directory]::Move($stagingPath, $ProfilePath)
         }
     }
     catch {
-        # The folder did not exist before; drop a partial extraction so a re-run can retry.
-        Remove-Item -LiteralPath $ProfilePath -Recurse -Force -ErrorAction SilentlyContinue
+        # Only the staging folder is this call's own; drop it so a re-run can retry.
+        if (Test-Path -LiteralPath $stagingPath) { Remove-Item -LiteralPath $stagingPath -Recurse -Force -ErrorAction SilentlyContinue }
         Write-Error -Message ("Error restoring Chrome profile {0} from {1}: {2}" -f $ProfilePath, $zipFile, $_.Exception.Message) -TargetObject $zipFile
         return
     }

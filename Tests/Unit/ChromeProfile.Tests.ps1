@@ -209,6 +209,25 @@ Describe 'Restore-ChromeProfile' {
         Test-Path -LiteralPath $zip | Should -BeFalse
     }
 
+    It 'never deletes or changes a profile that appears after the existence check' {
+        Initialize-FakeChromeProfile -Path $chromeProfile -Bookmarks 'saved'
+        $null = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile -ErrorAction Stop
+        # Another process (Chrome starting) creates the profile between the check and the extraction:
+        # the check is mocked to see no profile while one exists, with a file the zip also holds.
+        Set-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') -Value 'created by Chrome'
+        $checkedPath = $chromeProfile
+        Mock Test-Path -ModuleName ChromeProfile { Microsoft.PowerShell.Management\Test-Path @PesterBoundParameters }
+        Mock Test-Path -ModuleName ChromeProfile -ParameterFilter { $LiteralPath -eq $checkedPath } { $false }
+
+        $result = Restore-ChromeProfile -Path $backup -ProfilePath $chromeProfile -ErrorVariable err -ErrorAction SilentlyContinue
+
+        $result | Should -BeNullOrEmpty
+        "$err" | Should -BeLike '*Error restoring Chrome profile*'
+        Get-Content -LiteralPath (Join-Path $chromeProfile 'Bookmarks') | Should -Be 'created by Chrome' -Because 'a profile this call did not create must be left as it is'
+        Test-Path -LiteralPath $zip | Should -BeTrue
+        @(Get-ChildItem -LiteralPath (Split-Path -Parent $chromeProfile) -Force | Where-Object Name -ne 'Default') | Should -BeNullOrEmpty -Because 'the temporary extraction folder is removed'
+    }
+
     It 'warns and leaves an existing profile and the zip alone' {
         Initialize-FakeChromeProfile -Path $chromeProfile -Bookmarks 'saved'
         $null = Backup-ChromeProfile -Destination $backup -ProfilePath $chromeProfile
