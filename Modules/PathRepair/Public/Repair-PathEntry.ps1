@@ -21,7 +21,8 @@ function Repair-PathEntry {
         - IncorrectSemicolons: C:\;dir becomes C:\dir when that directory exists (matches nothing; see NOTES)
         - Duplicates: removes later copies of an entry (case-insensitive)
         - BlankEntries: removes empty and blank entries
-        - NonExistentPaths: removes entries that are not an existing directory (a bare drive root is kept)
+        - NonExistentPaths: removes entries that are not an existing directory (a bare drive root is kept),
+          but unquotes a quoted entry holding semicolons (stray quotes around several entries)
 
         Outputs one object with ComputerName, OriginalPath, NewPath, Changes (Entry,
         NewEntry, which is $null for a removal, and Reason; only the approved changes once

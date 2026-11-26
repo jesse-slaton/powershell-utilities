@@ -204,6 +204,31 @@ Describe 'Repair-PathEntry' {
         $script:writes[3] | Should -BeExactly 'User/PATH=C:\Keep;C:\A\bin;C:\Windows;C:\B\bin;C:\X;C:\Y;"C:\P;Q"'
     }
 
+    It 'unquotes, never removes, two stray quotes around existing entries in <PathValue>' -ForEach @(
+        @{ PathValue = 'C:\Keep;"C:\A\bin;C:\Windows;C:\B\bin"'; Expected = 'C:\Keep;C:\A\bin;C:\Windows;C:\B\bin' }
+        @{ PathValue = 'C:\Keep;"C:\A\bin;C:\Windows";C:\B'; Expected = 'C:\Keep;C:\A\bin;C:\Windows;C:\B' }
+    ) {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { $PathValue }
+        Mock Test-PathDirectory -ModuleName PathRepair { @('C:\Keep', 'C:\A\bin', 'C:\Windows', 'C:\B\bin', 'C:\B') -contains $Path.Trim('"') }
+        $result = Repair-PathEntry -Confirm:$false
+        $result.NewPath | Should -BeExactly $Expected
+        @($result.Changes).Count | Should -Be 1
+        @($result.Changes)[0].Reason | Should -Be 'Quoted span holds several entries'
+        $script:writes[3] | Should -BeExactly "User/PATH=$Expected"
+        # The written PATH splits back into the separate entries, so a second run changes nothing.
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { $Expected }
+        @((Repair-PathEntry -Confirm:$false).Changes).Count | Should -Be 0
+        $script:writes.Count | Should -Be 4
+    }
+
+    It 'keeps unchanged an existing quoted directory whose name holds a semicolon' {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { 'C:\Good;"C:\Good;Q"' }
+        $result = Repair-PathEntry -Confirm:$false
+        $result.Applied | Should -BeFalse
+        @($result.Changes).Count | Should -Be 0
+        Should -Invoke Write-EnvironmentVariable -ModuleName PathRepair -Times 0 -Exactly
+    }
+
     It 'changes nothing under -WhatIf and returns the proposed repair' {
         $result = Repair-PathEntry -WhatIf
         $result.Applied | Should -BeFalse
