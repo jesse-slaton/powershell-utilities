@@ -31,4 +31,4 @@ cannot run. Last commit that has them: `293649f0ab13`.
 
 | Path | What it did |
 |---|---|
-| `Scripts/System/MainCleanupScript.ps1` | Ran recycle bin, temporary file, DISM and CCM cache cleanup as a timed background job. Every cleanup step lived in `CleanupFunctions.psm1`, which was never committed. |
+| `Scripts/System/MainCleanupScript.ps1` | Ran recycle bin, temporary file, DISM and CCM cache cleanup as a timed background job. Every cleanup step lived in `CleanupFunctions.psm1`, which was never committed, and no copy survives outside the repo either (a search of the original Windows machine found none), so the script cannot be ported. |
