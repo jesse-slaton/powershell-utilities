@@ -1,7 +1,8 @@
 # Archived scripts
 
 Scripts removed from `main` because the product they depend on is no longer in use,
-or because they cannot run as written. They are kept in git history: restore one with
+because they cannot run as written, or because a module function now does their job. Each
+section says which. They are kept in git history: restore one with
 `git show <commit>:"<path>" > "<file>"`, using the last commit listed in its section, or browse
 `https://github.com/jesse-slaton/powershell-utilities/tree/<commit>`.
 
