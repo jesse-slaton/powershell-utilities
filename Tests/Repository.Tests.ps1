@@ -59,7 +59,10 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
     #   (c) absolute: C:\x, C:/x, \\server\share\x, a PowerShell drive (Env:, TestDrive:\x),
     #       a provider path whose part after :: is itself absolute (FileSystem::C:\x; but
     #       FileSystem::.\x is relative), or ~. As a Join-Path parent a bare C: also passes.
-    #   (d) rooted in the environment: $env:windir, $env:ProgramFiles, ...,
+    #   (d) rooted in the environment: a Windows folder variable ($env:windir, $env:ProgramFiles,
+    #       $env:TEMP and the others in $environmentRoots), [Environment]::GetFolderPath(...),
+    #       [Environment]::SystemDirectory, $PSHOME, $HOME. Any other $env: variable can hold a
+    #       relative path, so it passes only by rule (e), like an ordinary variable.
     #       [Environment]::GetFolderPath(...), [Environment]::SystemDirectory, $PSHOME, $HOME.
     #   (e) a variable whose EVERY assignment in the file is itself allowed. Scope qualifiers are
     #       ignored ($script:x, $global:x and $x are one name). A += or other compound write, a
@@ -93,6 +96,9 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
         $script:maxDepth = 8
         $script:anchorVariables = @('PSScriptRoot', 'PSCommandPath')
         $script:absoluteVariables = @('PSHOME', 'HOME')
+        $script:environmentRoots = @('windir', 'SystemRoot', 'SystemDrive', 'ProgramFiles', 'ProgramFiles(x86)',
+            'ProgramW6432', 'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432', 'ProgramData',
+            'ALLUSERSPROFILE', 'PUBLIC', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'HOME')
         $script:scriptExtensions = @('ps1', 'psm1', 'psd1')
         $script:moduleFileExtension = '\.(ps1|psm1|psd1|dll)$'
         $script:importCommands = @('Import-Module', 'ipmo')
@@ -506,7 +512,8 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
                 return $true
             }
             if ($Element -is [System.Management.Automation.Language.VariableExpressionAst]) {
-                if ($Element.VariablePath.DriveName -eq 'env') { return $true }
+                if ($Element.VariablePath.DriveName -eq 'env' -and
+                    $script:environmentRoots -contains ($Element.VariablePath.UserPath -replace '^env:', '')) { return $true }
                 $name = Get-NormalizedVariableName -Variable $Element
                 if ($script:anchorVariables -contains $name -or $script:absoluteVariables -contains $name) { return $true }
                 $writes = @(Get-AssignedValue -Ast $Ast -Name $name)
@@ -945,6 +952,9 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = '4702824887: Import-Module held in a variable'; Code = "`$cmd = 'Import-Module'`n& `$cmd .\Helper.psm1" }
             @{ Name = '4702824887: ipmo held in a variable'; Code = "`$c = 'ipmo'`n& `$c .\Helper.psm1" }
             @{ Name = '4702824887: a concatenated Import-Module name'; Code = '& (''Import-'' + ''Module'') .\Helper.psm1' }
+            @{ Name = '4702931540: an arbitrary environment variable'; Code = 'Import-Module $env:MODULE_PATH' }
+            @{ Name = '4702931540: Join-Path from an arbitrary environment variable'; Code = '. (Join-Path $env:HELPER_DIR ''Helper.ps1'')' }
+            @{ Name = '4702931540: an environment variable assigned a relative path'; Code = "`$env:MODULE_PATH = '.\Helper.psm1'`nImport-Module `$env:MODULE_PATH" }
         ) {
             param($Name, $Code, $Line)
             $offenders = Invoke-FixtureScan -Code $Code
@@ -1052,6 +1062,9 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = '4702824887: Import-Module held in a variable importing a module name'; Code = "`$cmd = 'Import-Module'`n& `$cmd Pester" }
             @{ Name = '4702824887: a concatenated Import-Module name importing an anchored path'; Code = '& (''Import-'' + ''Module'') (Join-Path $PSScriptRoot ''Helper.psm1'')' }
             @{ Name = '4702824887: a script block in a variable called with a relative argument'; Code = "`$work = { param(`$p) Get-Item `$p }`n& `$work .\Helper.psm1" }
+            @{ Name = '4702931540: a Windows folder variable in another case'; Code = 'Import-Module (Join-Path $env:PROGRAMDATA ''Helper'')' }
+            @{ Name = '4702931540: a braced Windows folder variable'; Code = '. (Join-Path ${env:ProgramFiles(x86)} ''Helper.ps1'')' }
+            @{ Name = '4702931540: an environment variable assigned an anchored path'; Code = "`$env:MODULE_PATH = Join-Path `$PSScriptRoot 'Helper.psm1'`nImport-Module `$env:MODULE_PATH" }
         ) {
             param($Name, $Code)
             Invoke-FixtureScan -Code $Code | Should -BeNullOrEmpty
