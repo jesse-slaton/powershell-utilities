@@ -54,6 +54,11 @@ function Invoke-PathRepairCore {
     $seenPaths = @{}
     $fixedPath = New-Object System.Collections.Generic.List[string]
     $changes = New-Object System.Collections.Generic.List[object]
+    # Entries kept exactly as they are, with no change of their own that could be declined.
+    $stablePaths = @{}
+    # Parts kept from an unquoted span, mapped to that span's index: they reach PATH only if
+    # that span's change is approved.
+    $spanParts = @{}
 
     for ($index = 0; $index -lt $entries.Count; $index++) {
         $entry = $entries[$index]
@@ -61,6 +66,8 @@ function Invoke-PathRepairCore {
         $reason = $null
         $remove = $false
         $duplicateOf = $null
+        $dependsOn = @()
+        $fallbackEntry = $null
 
         if ('UnbalancedQuotes' -in $FixTypes -and (($entry -split '"').Count - 1) % 2 -ne 0) {
             $suggested = $entry -replace '"', ''
@@ -92,18 +99,61 @@ function Invoke-PathRepairCore {
             $remove = $true
             $reason = 'Non-existent directory'
             if ($suggested -match '^"(?=[^"]*[^";\s])[^"]*;[^"]*"$') {
-                $remove = $false; $suggested = @($suggested.Trim('"') -split ';' | Where-Object { $_.Trim() }) -join ';'; $reason = 'Quoted span holds several entries'
+                $remove = $false
+                $reason = 'Quoted span holds several entries'
+                $parts = @($suggested.Trim('"') -split ';' | Where-Object { $_.Trim() })
+                if ('Duplicates' -in $FixTypes) {
+                    # Drop a part that repeats an earlier part of this span, or an earlier entry
+                    # that is kept as it is. A part that repeats an entry with its own pending
+                    # change stays, because that change can still be declined.
+                    $spanSeen = @{}
+                    $unique = @($parts | Where-Object {
+                        $isDuplicate = $spanSeen.ContainsKey($_) -or $stablePaths.ContainsKey($_)
+                        $spanSeen[$_] = $true
+                        -not $isDuplicate
+                    })
+                    # A part kept from an earlier span is dropped too, but that span's change
+                    # can be declined, so the change carries the replacement to use instead.
+                    $crossSpan = @($unique | Where-Object { -not $spanParts.ContainsKey($_) })
+                    if ($crossSpan.Count -lt $unique.Count) {
+                        $dependsOn = @($unique | Where-Object { $spanParts.ContainsKey($_) } |
+                            ForEach-Object { $spanParts[$_] } | Select-Object -Unique)
+                        $fallbackEntry = $unique -join ';'
+                    }
+                    if ($crossSpan.Count -lt $parts.Count) {
+                        $reason = 'Quoted span holds several entries, duplicates dropped'
+                    }
+                    $parts = $crossSpan
+                }
+                if ($parts.Count -eq 0) {
+                    $remove = $true
+                    $reason = 'Quoted span holds only duplicate entries'
+                } else {
+                    $suggested = $parts -join ';'
+                }
             }
         }
 
         if ($remove) {
-            $changes.Add([pscustomobject]@{ Index = $index; Entry = $entry; NewEntry = $null; Reason = $reason; DuplicateOf = $duplicateOf })
+            $changes.Add([pscustomobject]@{ Index = $index; Entry = $entry; NewEntry = $null; Reason = $reason; DuplicateOf = $duplicateOf
+                DependsOn = $dependsOn; FallbackEntry = $fallbackEntry })
             continue
         }
         if ($suggested -cne $entry) {
-            $changes.Add([pscustomobject]@{ Index = $index; Entry = $entry; NewEntry = $suggested; Reason = $reason; DuplicateOf = $null })
+            $changes.Add([pscustomobject]@{ Index = $index; Entry = $entry; NewEntry = $suggested; Reason = $reason; DuplicateOf = $null
+                DependsOn = $dependsOn; FallbackEntry = $fallbackEntry })
         }
         $seenPaths[$suggested] = $index
+        if ($suggested -ceq $entry) {
+            $stablePaths[$suggested] = $true
+        } elseif ($reason -like 'Quoted span holds several entries*') {
+            # Each part of an unquoted span is an entry of its own from here on, so a later
+            # copy of a part is a duplicate of this span, skipped if the span is declined.
+            foreach ($part in $suggested -split ';') {
+                if (-not $seenPaths.ContainsKey($part)) { $seenPaths[$part] = $index }
+                if (-not $spanParts.ContainsKey($part)) { $spanParts[$part] = $index }
+            }
+        }
         $fixedPath.Add($suggested)
     }
 
@@ -180,7 +230,9 @@ function Select-ApprovedPathChange {
         removal) and every other entry is kept exactly as it is. Changes are matched by
         position, so two entries with the same text are decided separately. A Duplicate
         removal whose DuplicateOf entry had its change declined is skipped unasked (it
-        copies only the changed text); -WhatIf still lists it. Outputs one object with
+        copies only the changed text); -WhatIf still lists it. A change whose DependsOn
+        holds a declined change is offered with its FallbackEntry instead, the replacement
+        that keeps the parts the declined change would have supplied. Outputs one object with
         NewPath and Changes (the approved ones). Private to PathRepair.
 
     .PARAMETER Cmdlet
@@ -221,6 +273,10 @@ function Select-ApprovedPathChange {
             Write-Verbose "Keeping entry '$($change.Entry)': the change to the entry it duplicates was declined."
             continue
         }
+        if (@($change.DependsOn | Where-Object { $declined.ContainsKey([int]$_) }).Count -gt 0 -and -not $WhatIfPreference) {
+            $change = [pscustomobject]@{ Index = $change.Index; Entry = $change.Entry; NewEntry = $change.FallbackEntry
+                Reason = 'Quoted span holds several entries'; DuplicateOf = $null; DependsOn = @(); FallbackEntry = $null }
+        }
         if ($null -eq $change.NewEntry) {
             $action = "Remove entry '$($change.Entry)' ($($change.Reason))"
         } else {
@@ -245,7 +301,8 @@ function Select-ApprovedPathChange {
 
     [pscustomobject]@{
         NewPath = $kept.ToArray() -join ';'
-        Changes = @($Plan.Changes | Where-Object { $approved.ContainsKey([int]$_.Index) })
+        # The approved changes as applied, so a fallback replacement is reported as written.
+        Changes = @($approved.Keys | Sort-Object | ForEach-Object { $approved[$_] })
     }
 }
 

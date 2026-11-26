@@ -204,6 +204,31 @@ Describe 'Repair-PathEntry' {
         $script:writes[3] | Should -BeExactly 'User/PATH=C:\Keep;C:\A\bin;C:\Windows;C:\B\bin;C:\X;C:\Y;"C:\P;Q"'
     }
 
+    It 'unquotes, never removes, two stray quotes around existing entries in <PathValue>' -ForEach @(
+        @{ PathValue = 'C:\Keep;"C:\A\bin;C:\Windows;C:\B\bin"'; Expected = 'C:\Keep;C:\A\bin;C:\Windows;C:\B\bin' }
+        @{ PathValue = 'C:\Keep;"C:\A\bin;C:\Windows";C:\B'; Expected = 'C:\Keep;C:\A\bin;C:\Windows;C:\B' }
+    ) {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { $PathValue }
+        Mock Test-PathDirectory -ModuleName PathRepair { @('C:\Keep', 'C:\A\bin', 'C:\Windows', 'C:\B\bin', 'C:\B') -contains $Path.Trim('"') }
+        $result = Repair-PathEntry -Confirm:$false
+        $result.NewPath | Should -BeExactly $Expected
+        @($result.Changes).Count | Should -Be 1
+        @($result.Changes)[0].Reason | Should -Be 'Quoted span holds several entries'
+        $script:writes[3] | Should -BeExactly "User/PATH=$Expected"
+        # The written PATH splits back into the separate entries, so a second run changes nothing.
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { $Expected }
+        @((Repair-PathEntry -Confirm:$false).Changes).Count | Should -Be 0
+        $script:writes.Count | Should -Be 4
+    }
+
+    It 'keeps unchanged an existing quoted directory whose name holds a semicolon' {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { 'C:\Good;"C:\Good;Q"' }
+        $result = Repair-PathEntry -Confirm:$false
+        $result.Applied | Should -BeFalse
+        @($result.Changes).Count | Should -Be 0
+        Should -Invoke Write-EnvironmentVariable -ModuleName PathRepair -Times 0 -Exactly
+    }
+
     It 'changes nothing under -WhatIf and returns the proposed repair' {
         $result = Repair-PathEntry -WhatIf
         $result.Applied | Should -BeFalse
@@ -270,6 +295,21 @@ Describe 'Repair-PathEntry' {
         $result = Repair-PathEntry -FixTypes BlankEntries -Confirm:$false
         $result.NewPath | Should -BeExactly 'C:\Good'
         @($result.Changes | Where-Object { $_.Reason -eq 'Empty or blank entry' }).Count | Should -Be 2
+    }
+
+    It 'drops duplicate parts of an unquoted span: <Path>' -ForEach @(
+        @{ Path = '"C:\A;C:\A";C:\B'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds several entries, duplicates dropped' }
+        @{ Path = 'C:\A;"C:\A;C:\B"'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds several entries, duplicates dropped' }
+        @{ Path = '"C:\A;C:\B";C:\A'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds several entries|Duplicate entry' }
+        @{ Path = 'C:\A;"C:\A;C:\A";C:\B'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds only duplicate entries' }
+        @{ Path = '"C:\A;C:\B";"C:\A;C:\B"'; NewPath = 'C:\A;C:\B'; Reasons = 'Quoted span holds several entries|Quoted span holds only duplicate entries' }
+        @{ Path = '"C:\A;C:\B";"C:\B;C:\C"'; NewPath = 'C:\A;C:\B;C:\C'; Reasons = 'Quoted span holds several entries|Quoted span holds several entries, duplicates dropped' }
+    ) {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } { $Path }
+        Mock Test-PathDirectory -ModuleName PathRepair { @('C:\A', 'C:\B', 'C:\C') -contains $Path }
+        $result = Repair-PathEntry -Confirm:$false
+        $result.NewPath | Should -BeExactly $NewPath
+        @($result.Changes | ForEach-Object { $_.Reason }) -join '|' | Should -Be $Reasons
     }
 
     It 'writes nothing when the repair would leave the User PATH empty' {
@@ -375,6 +415,45 @@ Describe 'Select-ApprovedPathChange' {
         }
         $fake.Calls.Count | Should -Be $Calls
         $result.NewPath | Should -BeExactly $NewPath
+    }
+
+    It 'keeps a later copy of a span part, without asking, when the span is declined' -ForEach @(
+        @{ Answers = @($false); Calls = 1; NewPath = '"C:\A;C:\B";C:\A' }
+        @{ Answers = @($true, $true); Calls = 2; NewPath = 'C:\A;C:\B' }
+    ) {
+        $fake = New-FakeCmdlet -Answers $Answers
+        $result = InModuleScope PathRepair -Parameters @{ Fake = $fake } {
+            param($Fake)
+            Mock Read-EnvironmentVariable { '"C:\A;C:\B";C:\A' }
+            Mock Test-PathDirectory { @('C:\A', 'C:\B') -contains $Path }
+            $plan = Invoke-PathRepairCore -FixTypes Duplicates, NonExistentPaths
+            @($plan.Changes)[1].DuplicateOf | Should -Be 0
+            Select-ApprovedPathChange -Cmdlet $Fake -Target 'User PATH' -Plan $plan
+        }
+        $fake.Calls.Count | Should -Be $Calls
+        $result.NewPath | Should -BeExactly $NewPath
+    }
+
+    It 'keeps the parts a declined span would have supplied when a later span repeats them: <Path>' -ForEach @(
+        @{ Path = '"C:\A;C:\B";"C:\A;C:\B"'; Answers = @($false, $true); NewPath = '"C:\A;C:\B";C:\A;C:\B'; Written = 'C:\A;C:\B'
+            Second = "Replace entry '`"C:\A;C:\B`"' with 'C:\A;C:\B' (Quoted span holds several entries)" }
+        @{ Path = '"C:\A;C:\B";"C:\B;C:\C"'; Answers = @($false, $true); NewPath = '"C:\A;C:\B";C:\B;C:\C'; Written = 'C:\B;C:\C'
+            Second = "Replace entry '`"C:\B;C:\C`"' with 'C:\B;C:\C' (Quoted span holds several entries)" }
+        @{ Path = '"C:\A;C:\B";"C:\B;C:\C"'; Answers = @($true, $true); NewPath = 'C:\A;C:\B;C:\C'; Written = 'C:\A;C:\B|C:\C'
+            Second = "Replace entry '`"C:\B;C:\C`"' with 'C:\C' (Quoted span holds several entries, duplicates dropped)" }
+    ) {
+        $fake = New-FakeCmdlet -Answers $Answers
+        $result = InModuleScope PathRepair -Parameters @{ Fake = $fake; Path = $Path } {
+            param($Fake, $Path)
+            Mock Read-EnvironmentVariable { $Path }
+            Mock Test-PathDirectory { @('C:\A', 'C:\B', 'C:\C') -contains $Path }
+            $plan = Invoke-PathRepairCore -FixTypes Duplicates, NonExistentPaths
+            Select-ApprovedPathChange -Cmdlet $Fake -Target 'User PATH' -Plan $plan
+        }
+        $fake.Calls.Count | Should -Be 2
+        $fake.Calls[1] | Should -BeExactly "User PATH|$Second"
+        $result.NewPath | Should -BeExactly $NewPath        # The reported changes are the ones written, fallback included.
+        @($result.Changes | ForEach-Object { if ($null -eq $_.NewEntry) { '-' } else { $_.NewEntry } }) -join '|' | Should -BeExactly $Written
     }
 
     It 'decides two entries with the same text separately' {
