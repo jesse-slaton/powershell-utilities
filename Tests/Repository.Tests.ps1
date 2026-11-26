@@ -43,7 +43,10 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
     # resolved (@{ $key = ... }) or when a member or index write reaches the hashtable through
     # any copy of it ($copy = $original; $copy.Name = ...). A parameter the check does not
     # know to take a value is read as a switch, so the argument after it is still checked
-    # (-vb .\x fails).
+    # (-vb .\x fails). An alias the file defines for an import command (Set-Alias load
+    # Import-Module, New-Alias, sal, nal, or an alias of such an alias) is checked as that
+    # command; so is an alias whose target cannot be resolved. A Set-Alias whose name cannot be
+    # resolved and whose target is, or may be, an import command fails itself.
     # Every expression is first unwrapped from ( ), $( ), @( ), a cast and a one-element pipeline.
     #
     # A path PASSES when it is:
@@ -102,6 +105,9 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
         $script:scriptExtensions = @('ps1', 'psm1', 'psd1')
         $script:moduleFileExtension = '\.(ps1|psm1|psd1|dll)$'
         $script:importCommands = @('Import-Module', 'ipmo')
+        $script:fileImportAliases = @()
+        $script:aliasCommands = @('Set-Alias', 'New-Alias', 'sal', 'nal')
+        $script:aliasParameters = @('Name', 'Value', 'Description', 'Option', 'Scope')
         $script:itemCommands = @('Get-ChildItem', 'gci', 'dir', 'ls', 'Get-Item', 'gi')
         $script:filterCommands = @('Where-Object', 'where', '?', 'Sort-Object', 'sort')
         $script:forEachCommands = @('ForEach-Object', 'foreach', '%')
@@ -738,12 +744,73 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             return $true
         }
 
+        function Get-AliasDefinition {
+            # One object per Set-Alias / New-Alias / sal / nal in $Ast: Command, Names and Targets
+            # (the static values of -Name and -Value, or $null when they cannot be resolved).
+            # Targets lose a module qualifier (Microsoft.PowerShell.Core\Import-Module).
+            param([System.Management.Automation.Language.Ast]$Ast)
+            $commands = $Ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)
+            foreach ($command in $commands) {
+                if ($script:aliasCommands -notcontains (Get-BaseCommandName -Command $command)) { continue }
+                $binding = Get-CommandBinding -Command $command -ValueParameters $script:aliasParameters -Aliases @{}
+                $positional = @($binding.Positional)
+                $nameElement = $binding.Named['Name']
+                if ($null -eq $nameElement -and $positional.Count -gt 0) {
+                    $nameElement = $positional[0]
+                    $positional = @($positional | Select-Object -Skip 1)
+                }
+                $valueElement = $binding.Named['Value']
+                if ($null -eq $valueElement -and $positional.Count -gt 0) { $valueElement = $positional[0] }
+                $names = $null
+                if ($null -ne $nameElement) { $names = Get-StaticValue -Element $nameElement -Ast $Ast }
+                $targets = $null
+                if ($null -ne $valueElement) {
+                    $values = Get-StaticValue -Element $valueElement -Ast $Ast
+                    if ($null -ne $values) {
+                        $targets = @(foreach ($value in @($values)) { $value -replace '^[A-Za-z][\w.-]*\\(?=[A-Za-z][\w-]*$)', '' })
+                    }
+                }
+                [pscustomobject]@{ Command = $command; Names = $names; Targets = $targets }
+            }
+        }
+
+        function Get-ImportAlias {
+            # Names $Ast aliases to an import command, directly or through another alias. An alias
+            # whose target cannot be resolved counts too, so the check fails closed.
+            param([object[]]$Definitions)
+            $importNames = New-Object System.Collections.Generic.List[string]
+            foreach ($command in $script:importCommands) { $importNames.Add($command) }
+            $found = New-Object System.Collections.Generic.List[string]
+            do {
+                $added = $false
+                foreach ($definition in $Definitions) {
+                    if ($null -eq $definition.Names) { continue }
+                    $imports = $null -eq $definition.Targets
+                    foreach ($target in @($definition.Targets)) { if ($importNames -contains $target) { $imports = $true } }
+                    if (-not $imports) { continue }
+                    foreach ($name in @($definition.Names)) {
+                        if ($importNames -notcontains $name) { $importNames.Add($name); $found.Add($name); $added = $true }
+                    }
+                }
+            } while ($added)
+            return $found.ToArray()
+        }
+
         function Test-AllowedLoadSite {
             # True when a command is not a load site or loads only allowed paths. The first element
             # of a command is what runs: a command name, the script or command after . or &, or a
             # script path typed as the command name (.\x.ps1 -Arg).
             param([System.Management.Automation.Language.CommandAst]$Command, [System.Management.Automation.Language.Ast]$Ast)
             if (-not (Test-AllowedPath -Element $Command.CommandElements[0] -Ast $Ast -Mode 'Command')) { return $false }
+            $importNames = @($script:importCommands) + @($script:fileImportAliases)
+            if ($script:aliasCommands -contains (Get-BaseCommandName -Command $Command)) {
+                # An import alias whose name cannot be resolved could be any command: fail.
+                foreach ($definition in @(Get-AliasDefinition -Ast $Command)) {
+                    if ($definition.Command -ne $Command -or $null -ne $definition.Names) { continue }
+                    if ($null -eq $definition.Targets) { return $false }
+                    foreach ($target in @($definition.Targets)) { if ($importNames -contains $target) { return $false } }
+                }
+            }
             $names = @(Get-BaseCommandName -Command $Command)
             if ($null -eq $names[0]) {
                 # & $cmd, & ('Import-' + 'Module'): the command names the expression can hold. One
@@ -752,7 +819,7 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
                 $names = @(foreach ($value in @($values)) { $value -replace '^[A-Za-z][\w.-]*\\(?=[A-Za-z][\w-]*$)', '' })
             }
             foreach ($name in $names) {
-                if ($script:importCommands -contains $name) { return (Test-AllowedImport -Command $Command -Ast $Ast) }
+                if ($importNames -contains $name) { return (Test-AllowedImport -Command $Command -Ast $Ast) }
             }
             return $true
         }
@@ -789,6 +856,7 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
                     continue
                 }
                 $suppressed = @(Get-SuppressedLine -Tokens $tokens -Lines ($ast.Extent.Text -split "`r?`n"))
+                $script:fileImportAliases = @(Get-ImportAlias -Definitions @(Get-AliasDefinition -Ast $ast))
                 $commands = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)
                 foreach ($command in $commands) {
                     if ($suppressed -contains $command.Extent.StartLineNumber) { continue }
@@ -955,6 +1023,12 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = '4702931540: an arbitrary environment variable'; Code = 'Import-Module $env:MODULE_PATH' }
             @{ Name = '4702931540: Join-Path from an arbitrary environment variable'; Code = '. (Join-Path $env:HELPER_DIR ''Helper.ps1'')' }
             @{ Name = '4702931540: an environment variable assigned a relative path'; Code = "`$env:MODULE_PATH = '.\Helper.psm1'`nImport-Module `$env:MODULE_PATH" }
+            @{ Name = '6067441363: a Set-Alias for Import-Module'; Code = "Set-Alias load Import-Module`nload .\Helper.psm1" }
+            @{ Name = '6067441363: a named New-Alias for ipmo'; Code = "New-Alias -Name load -Value ipmo`nload .\Helper.psm1" }
+            @{ Name = '6067441363: an sal alias for a module-qualified Import-Module'; Code = "sal load Microsoft.PowerShell.Core\Import-Module`nload .\Helper.psm1" }
+            @{ Name = '6067441363: an alias of an import alias'; Code = "Set-Alias load Import-Module`nSet-Alias get load`nget .\Helper.psm1" }
+            @{ Name = '6067441363: an alias whose target cannot be resolved'; Code = "Set-Alias load `$target`nload .\Helper.psm1" }
+            @{ Name = '6067441363: an import alias whose name cannot be resolved'; Code = "Set-Alias `$name Import-Module" }
         ) {
             param($Name, $Code, $Line)
             $offenders = Invoke-FixtureScan -Code $Code
@@ -1065,6 +1139,10 @@ Describe 'No script loads a dependency from a working-directory-relative path' {
             @{ Name = '4702931540: a Windows folder variable in another case'; Code = 'Import-Module (Join-Path $env:PROGRAMDATA ''Helper'')' }
             @{ Name = '4702931540: a braced Windows folder variable'; Code = '. (Join-Path ${env:ProgramFiles(x86)} ''Helper.ps1'')' }
             @{ Name = '4702931540: an environment variable assigned an anchored path'; Code = "`$env:MODULE_PATH = Join-Path `$PSScriptRoot 'Helper.psm1'`nImport-Module `$env:MODULE_PATH" }
+            @{ Name = '6067441363: an import alias loading an anchored path'; Code = "Set-Alias load Import-Module`nload (Join-Path `$PSScriptRoot 'Helper.psm1')" }
+            @{ Name = '6067441363: an import alias loading a module by name'; Code = "Set-Alias load Import-Module`nload Pester" }
+            @{ Name = '6067441363: an alias for a non-import command'; Code = "Set-Alias show Get-Item`nshow .\Helper.psm1" }
+            @{ Name = '6067441363: a non-import alias whose name cannot be resolved'; Code = "Set-Alias `$name Get-Item" }
         ) {
             param($Name, $Code)
             Invoke-FixtureScan -Code $Code | Should -BeNullOrEmpty
