@@ -43,6 +43,7 @@ class library types.
 - **retire** - moved to the archive per [ARCHIVED.md](./ARCHIVED.md), for one reason: obsolete product,
   one-time migration, superseded, org-specific, or broken/incomplete.
 - **see #NN** - decided in another issue.
+- **replaced by \<module\> (#NN)** - the module issue removed the script; a function in that module does its job.
 
 Keep means the script is compatible with PowerShell 7, not that it already runs under 7 in production.
 For the `-Sensor` and `-Package` scripts the deployment tool chooses the host (`powershell.exe` by
@@ -54,11 +55,12 @@ Retirement moves and ports happen in follow-up issues; no script is changed by t
 
 | Decision | Files |
 |---|---|
-| keep | 61 |
+| keep | 62 |
 | port | 0 |
-| port via module issue | 25 |
-| retire | 53 |
-| retire via module issue | 6 |
+| port via module issue | 20 |
+| replaced by a module function | 4 |
+| retire | 54 |
+| retire via module issue | 5 |
 | see other issue | 1 |
 | total | 146 |
 
@@ -165,17 +167,17 @@ Module issues: #44 ChromeProfile, #45 OfficeC2R, #46 SecurityPosture, #47 Storag
 | `Scripts/Network/TestRestoreScript.ps1` | none, PSSA: none, Set-Content L32 writes UTF-8 no BOM on 7 | retire | Writes a sample backup JSON for an external restore script. Broken/incomplete - orphan test fixture for a restore script that is not in this repository |
 | `Scripts/Network/WPRtoS3Upload.ps1` | none for 7.x, PSSA: none, wpr.exe arguments L58 are not valid WPR syntax and /stop is never called | retire | Intended to install WPR, record 5 minutes, upload zip to S3. Superseded - StartWPRSession-Sensor.ps1 does the WPR recording correctly, and this one never produces an ETL |
 | `Scripts/Office/ChangeOLP.ps1` | none 7-specific (WinForms and Add-Type MemberDefinition fine on Windows 7.x); L121 Out-File writes UTF-8 no BOM on 7.x vs UTF-16LE on 5.1 (ODT reads both); dialog text mentions Skype for Business; PSSA: none | keep | WinForms dialog to add or remove an Office 365 language pack. WinForms, registry and ODT setup.exe all work under pwsh on Windows; optional: pin -Encoding utf8 on L121 |
-| `Scripts/Office/Get-Bitness.ps1` | none; PSSA: none | port via #45 | Defines Get-Bitness, reports current process x86 or x64. [IntPtr]::Size is identical on 7.x; listed by #45, becomes the process-bitness helper of the OfficeC2R module |
-| `Scripts/Office/Get-Office365Channel.ps1` | none (Microsoft.Win32.RegistryKey OpenBaseKey is BCL on 7.x); PSSA: none | port via #45 | Outputs Office Click-to-Run update channel name from CDNBaseUrl. Runs on 7.x unchanged; becomes the channel lookup in the OfficeC2R module |
+| `Scripts/Office/Get-Bitness.ps1` | none; PSSA: none | replaced by OfficeC2R (#45) | Removed in #45: `Get-Bitness` in `Modules/OfficeC2R` reports the current process as x86 or x64 |
+| `Scripts/Office/Get-Office365Channel.ps1` | none (Microsoft.Win32.RegistryKey OpenBaseKey is BCL on 7.x); PSSA: none | replaced by OfficeC2R (#45) | Removed in #45: `Get-OfficeC2RChannel` (alias `Get-Office365Channel`) reads the channel through the 64-bit registry view |
 | `Scripts/Office/Get-OutlookInbox.ps1` | L85 System.Data.OleDb ships with PowerShell 7 (type resolves under pwsh, verified) and works on Windows; bugs: L89 and L92 call Fill twice into one DataSet so results duplicate, L82 keyword unescaped into the query; Office2016/mapi16 naming; PSSA: none | keep | Defines Search-Office2016, queries Windows Search index for Outlook items. OleDb provider is available in 7.x on Windows, no 7-specific change; fix the double Fill when touched |
 | `Scripts/Office/Get-PowerShellType.ps1` | none (handles PSEdition Core and $IsWindows explicitly); PSSA: none | keep | Defines Get-PowerShellType, reports edition and platform. Written for both editions, returns CoreWindows on 7.x |
 | `Scripts/Office/Get-ProcessBitness-Sensor.ps1` | none 7-specific (Get-Process -Module fine); L76 calls Test-Process, which is defined nowhere in the repo, so the function always fails; PSSA: none | retire | Defines Get-ProcessBitness, detects 32/64-bit processes via wow64.dll. Broken/incomplete - depends on an undefined Test-Process helper and has never run as committed |
-| `Scripts/Office/GetOffice365Bitness.ps1` | none (BCL registry API); PSSA: none | port via #45 | Outputs whether Office Click-to-Run is 32-bit or 64-bit. Runs on 7.x unchanged; becomes the bitness lookup in the OfficeC2R module |
-| `Scripts/Office/GetOffice365Channel-Package.ps1` | L27-33 sysnative powershell.exe relaunch forces 5.1; PSSA: none | retire via #45 | Package: Office Click-to-Run channel name from CDNBaseUrl. Superseded - near-duplicate of Get-Office365Channel.ps1 (which uses the 64-bit registry view instead of a relaunch); carry its extra DevMain Channel GUID into #45 |
-| `Scripts/Office/GetOfficeVersion-Package.ps1` | L35 ConvertFrom-Json on 7.x auto-converts ISO-8601 date strings to DateTime (releaseDate here is 'yyyy MMM dd' so L41 ParseExact still works, but any ISO field changes type); Invoke-WebRequest -UseBasicParsing fine; L52/L55 Compress/Expand without -Force error on rerun; depends on a third-party API; PSSA: none | port via #45 | Matches installed Office build against an online version list, saves CLIXML. Minor: guard ParseExact against already-typed values, drop the pointless zip round-trip, return objects; fold into OfficeC2R version lookup |
+| `Scripts/Office/GetOffice365Bitness.ps1` | none (BCL registry API); PSSA: none | replaced by OfficeC2R (#45) | Removed in #45: `Get-OfficeC2RBitness` (alias `Get-OfficeClickToRunBitness`) reads the Office platform through the 64-bit registry view |
+| `Scripts/Office/GetOffice365Channel-Package.ps1` | L27-33 sysnative powershell.exe relaunch forces 5.1; PSSA: none | retire (retired in #45) | Archived in #45 (see ARCHIVED.md); `Get-OfficeC2RChannel` does the same job without the powershell.exe relaunch |
+| `Scripts/Office/GetOfficeVersion-Package.ps1` | L35 ConvertFrom-Json on 7.x auto-converts ISO-8601 date strings to DateTime (releaseDate here is 'yyyy MMM dd' so L41 ParseExact still works, but any ISO field changes type); Invoke-WebRequest -UseBasicParsing fine; L52/L55 Compress/Expand without -Force error on rerun; depends on a third-party API; PSSA: none | keep (ported in #45) | Tanium package: a thin wrapper that imports the OfficeC2R module, calls `Get-OfficeC2RVersion` and exports the result to FilteredVersions.xml |
 | `Scripts/Office/MigrateOffice.ps1` | L56 Write-Host -Level is invalid on every version (real PSSA hit); L44/L51 -Message binds to -Object (works); L126 PSSA: false positive (XmlTextWriter.Create resolves to XmlWriter.Create); L133 Set-Content encoding differs (UTF-8 no BOM on 7.x), harmless; L77 hard-codes an organization name in the Company setting; L88 .split on null when the registry value is missing | retire | Builds ODT config to move Office to 64-bit Current Channel and installs. One-time migration - MSI-to-C2R and 32-to-64-bit arch migration with a hard-coded organization Company value |
 | `Scripts/Office/Set-OneBaseRetrievalButtonValue.ps1` | L40 Set-Content writes UTF-8 no BOM on 7.x vs ANSI on 5.1 (bytes of the .config change); L40 case-sensitive Replace after case-insensitive -match; PSSA: none | retire | Disables Retrieval button in a third-party Outlook add-in config for Office 2016. Obsolete product - edits a third-party document-management add-in's Office 2016 integration folder (Office 2016 left support Oct 2025), org-specific setting |
-| `Scripts/Office/SwitchOfficeC2RChannel.ps1` | PSSA: false positive (Set-ItemProperty -Type is a registry provider dynamic param, L79/L83); not 7-specific bugs: L73-75 channel GUIDs mismatched (MonthlyEnterprise maps to Current Preview, SemiAnnual to SAE Preview, Beta to SAE, per the GUID table in Get-Office365Channel.ps1), L46 Test-OfficeCdnConnectivity is never called, L81-82 create empty HKCU policy keys, L85 Set-Location $PSScriptRoot unneeded | port via #45 | Switches Office Click-to-Run to a new update channel and forces update. Runs on 7.x; fix the channel GUID map and dead code as the channel-switch function of OfficeC2R |
+| `Scripts/Office/SwitchOfficeC2RChannel.ps1` | PSSA: false positive (Set-ItemProperty -Type is a registry provider dynamic param, L79/L83); not 7-specific bugs: L73-75 channel GUIDs mismatched (MonthlyEnterprise maps to Current Preview, SemiAnnual to SAE Preview, Beta to SAE, per the GUID table in Get-Office365Channel.ps1), L46 Test-OfficeCdnConnectivity is never called, L81-82 create empty HKCU policy keys, L85 Set-Location $PSScriptRoot unneeded | replaced by OfficeC2R (#45) | Removed in #45: `Set-OfficeC2RChannel` writes the channel with the correct channel GUIDs and stops with an error on failure |
 | `Scripts/Office/Test-Command.ps1` | none; PSSA: none | keep | Defines Test-Command, reports whether a command exists. Get-Command -ErrorAction Stop behaves the same on 7.x |
 | `Scripts/Office/Test-SoapData.ps1` | none (Invoke-WebRequest .Content and [xml] cast unchanged on 7.x); PSSA: none | keep | Defines Test-SoapData, checks a response has a SOAP envelope body. Pure [xml] cast of a string property, version-neutral |
 | `Scripts/Security/BitlockerLocalAdStatusReport.ps1` | none blocking: ConvertTo-Csv -UseQuotes Never (l.305) is 7-only, so the script already targets 7 (it fails on 5.1); ADSI, COM Pathname via InvokeMember (l.68-86) and CIM work on 7; pre-existing bug l.271 uint key into string-keyed hashtable gives null ConversionStatus; PSSA: none | port via #46 | Reports local BitLocker volume status joined with AD recovery-info presence. Already 7-only, fold into the SecurityPosture module and fix the status-key lookup |
