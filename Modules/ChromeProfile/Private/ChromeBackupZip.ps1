@@ -102,8 +102,9 @@ function Expand-ChromeBackupZip {
     .DESCRIPTION
         Checks every entry first: an entry whose full path is not inside the destination folder
         (a '..' segment or an absolute path, "zip-slip") makes it throw before anything is
-        written. Then extracts with ZipFile.ExtractToDirectory, which takes literal paths and
-        restores hidden files and empty folders. The destination must not exist or must be
+        written. Then extracts from the same open archive (so the zip cannot be swapped between
+        the check and the extraction), which takes literal paths and restores hidden files and
+        empty folders. The destination must not exist or must be
         empty: Windows PowerShell 5.1 (.NET Framework) has no overwrite overload, and the caller
         always extracts into a fresh staging folder. Both paths are made absolute first (.NET
         resolves a relative path against the process working directory). Throws on failure.
@@ -138,6 +139,8 @@ function Expand-ChromeBackupZip {
     $prefix = $destination + [System.IO.Path]::DirectorySeparatorChar
     $comparison = if ([System.IO.Path]::DirectorySeparatorChar -eq '\') { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
 
+    # One open handle for the check and the extraction: OpenRead shares the file for reading
+    # only, so it cannot be replaced between the two, and what is extracted is what was checked.
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
     try {
         foreach ($entry in $archive.Entries) {
@@ -147,14 +150,14 @@ function Expand-ChromeBackupZip {
                 throw "zip entry '$($entry.FullName)' would be extracted outside the destination folder"
             }
         }
+        # An entry-less zip makes ExtractToDirectory create nothing on .NET (Core); the caller
+        # renames the folder into place, so it must exist.
+        $null = [System.IO.Directory]::CreateDirectory($destination)
+        [System.IO.Compression.ZipFileExtensions]::ExtractToDirectory($archive, $destination)
     }
     finally {
         $archive.Dispose()
     }
-    # An entry-less zip makes ExtractToDirectory create nothing on .NET (Core); the caller renames
-    # the folder into place, so it must exist.
-    $null = [System.IO.Directory]::CreateDirectory($destination)
-    [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $destination)
 }
 
 function Test-ChromeZipHasFile {
