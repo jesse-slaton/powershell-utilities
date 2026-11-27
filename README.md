@@ -117,9 +117,8 @@ is set in `BeforeDiscovery` (`$IsWindows` does not exist on Windows PowerShell 5
 ### External Repositories
 
 Some scripts depend on external repositories. See `EXTERNAL_REPOS.txt` for:
-- Repositories to fork/star
+- Repositories to star for updates
 - Installation instructions
-- Local path requirements
 
 ## Contributing
 
