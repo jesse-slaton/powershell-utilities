@@ -102,3 +102,15 @@ has them: `62aa6bae2a98`.
 | `Scripts/FileSystem/getVPNProfileReady-Sensor.ps1` | Sensor that reported ready when the IP Helper service was automatic and running and a VPN client profile flag was set; the profile half of the check was a no-op. |
 | `Scripts/FileSystem/Set-AnyConnectLocalProxy.ps1` | Set AllowLocalProxyConnections in the profile XMLs of a 4.x VPN client (obsolete product; the profile folder moved in the 5.x release, so the path no longer exists). |
 | `Scripts/FileSystem/Uninstall OneDrive-Package.ps1` | Uninstalled OneDrive from the Windows 10 inbox installer locations and removed its folders (obsolete product; the explorer stop step never worked). |
+
+## Retired scripts (#136, 2026-11)
+
+These scripts were retired because a near-duplicate supersedes them, because they cannot run as
+written, or because the product they targeted is gone. Last commit that has them: `05bd0b1caecf`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/General/GetExplorerArch-Package.ps1` | Reported whether one hard-coded browser was 32-bit or 64-bit; a misnamed near-duplicate of the kept binary-type sensor, which takes the target as a parameter. |
+| `Scripts/General/ArchTest-Package.ps1` | Template stub whose only real logic was a relaunch pinned to Windows PowerShell 5.1; the body was a placeholder. |
+| `Scripts/General/Find-Hack-Run-Sensor.ps1` | Listed a suspicious file name and hash in users' legacy browser cache folder (obsolete product, that browser is retired). |
+| `Scripts/General/GetBetaVersions.ps1` | Unfinished stub that parsed a release-history page with an unmaintained third-party library loaded from a personal hard-coded path; it produced no output. |
