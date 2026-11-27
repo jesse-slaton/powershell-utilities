@@ -7,7 +7,10 @@ function Repair-PathEntry {
         Reads the User-scope PATH, works out which entries to fix or remove for the
         selected issue types, and asks ShouldProcess about each change, so -WhatIf lists
         every change without writing anything and -Confirm (or -Prompt) asks about each
-        one. A declined change leaves that entry as it is. When at least one change is
+        one. A declined change leaves that entry as it is. The IncorrectSemicolons joins are
+        asked about first, and the other changes are worked out afterwards on the PATH with
+        the approved joins applied. -WhatIf lists every join, then the other changes as they
+        would be with every join approved. When at least one change is
         approved, re-reads the User PATH and, only if its text and its registry value kind
         are both unchanged since the preview, saves it to the User-scope BADPATH variable (undo with Restore-PathFromBackup),
         sets PATH_FIX_DATE to the current time and BADPATH_SCOPE to User|<that time>
@@ -36,7 +39,15 @@ function Repair-PathEntry {
 
         Issue types:
         - UnbalancedQuotes: removes every double quote from an entry with an odd number
-        - IncorrectSemicolons: C:\;dir becomes C:\dir when that directory exists (matches nothing; see NOTES)
+        - IncorrectSemicolons: joins a bare drive root and the relative entry after it, so
+          C:\;Program Files\Foo becomes C:\Program Files\Foo, when that directory exists
+          (checked as written, %VAR% unexpanded, in a REG_SZ PATH). A drive root followed by a
+          rooted entry or one holding a double quote, a join that does not exist, or in a
+          REG_SZ PATH a join holding %VAR%, is left alone. The joins are asked about first;
+          every other check then runs on the PATH with the approved joins applied. So a join
+          that repeats an earlier entry is followed by a second question, its Duplicates
+          removal (without Duplicates the copy stays), and a declined join leaves both
+          entries to the other checks, as if it had never been offered
         - Duplicates: removes later copies of an entry (case-insensitive)
         - BlankEntries: removes empty and blank entries
         - NonExistentPaths: removes entries that are not an existing directory (a bare drive root is kept),
@@ -84,12 +95,11 @@ function Repair-PathEntry {
         account that connects.
 
         On a remote computer the broadcast reaches only the remoting session, so the
-        user's own desktop sees the repaired PATH after the next sign-in.
-
-        Known limitation: IncorrectSemicolons never matches. PATH is split first, so
-        'C:\;dir' arrives as two entries, C:\ and dir, and the check sees each alone.
-        Checking neighbouring entries as a pair would be a new feature, tracked in issue
-        #162. Part of the PathRepair module.
+        user's own desktop sees the repaired PATH after the next sign-in. With an approved
+        join, the remote computer is called once more, to work out the other changes there.
+        For the same reason, with an approved join a caller's -WarningVariable collects each
+        warning twice; the console and 3>&1 show it once.
+        Part of the PathRepair module.
     #>
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     [Alias('Repair-PathEntries')]
@@ -121,14 +131,12 @@ function Repair-PathEntry {
         $targetParams['Credential'] = $Credential
     }
 
-    try {
-        $preview = Invoke-PathRepairTarget @targetParams
-    } catch {
-        Write-Error "An error occurred while processing the $target`: $($_.Exception.Message)"
+    # Writes the error itself, and outputs nothing, when the plan fails.
+    $selection = Select-ApprovedPathRepair -Cmdlet $PSCmdlet -Target $target -TargetParams $targetParams
+    if (-not $selection) {
         return
     }
-
-    $selection = Select-ApprovedPathChange -Cmdlet $PSCmdlet -Target $target -Plan $preview
+    $preview = $selection.Preview
     $changes = @($selection.Changes)
     $newPath = $selection.NewPath
     $applied = $changes.Count -gt 0
@@ -141,8 +149,8 @@ function Repair-PathEntry {
         }
         Write-Verbose "Original $target backed up to BADPATH; new PATH applied."
     } else {
-        $changes = @($preview.Changes)
-        $newPath = $preview.NewPath
+        $changes = @($selection.Proposed)
+        $newPath = $selection.Plan.NewPath
     }
 
     [pscustomobject]@{
