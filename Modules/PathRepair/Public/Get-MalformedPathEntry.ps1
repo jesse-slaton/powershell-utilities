@@ -8,7 +8,10 @@ function Get-MalformedPathEntry {
         outside double quotes (on every semicolon when the quotes are unbalanced) and checks
         each entry for:
         - Unbalanced double quotes
-        - A semicolon directly after the drive root (C:\;...)
+        - A semicolon after a drive root that splits one entry in two: a bare drive root
+          followed by a relative entry, such as C:\;Program Files\Foo, reported as one entry
+          when the joined path (C:\Program Files\Foo) is an existing directory and holds no
+          %VAR% reference (see NOTES)
         - An empty or blank entry
         - A duplicate of an earlier entry (case-insensitive)
         - A directory that does not exist (a bare drive root such as C:\ is never reported)
@@ -24,8 +27,11 @@ function Get-MalformedPathEntry {
         properties. When an entry has several issues, the last check that matched wins,
         in the order listed above, except that a duplicate copy of an unexpanded %VAR%
         entry stays a Duplicate entry (Delete): the first copy carries the %VAR% report.
-        SuggestedEntry is either a corrected entry or the word Delete. Reads only;
-        changes nothing.
+        SuggestedEntry is either a corrected entry or the word Delete. For a split drive
+        root, Entry is the pair as it appears in PATH and SuggestedEntry the joined path, or
+        Delete when the joined path repeats an earlier entry. Repair-PathEntry handles that
+        case as two questions, the join and then a Duplicates removal, so with -FixTypes
+        IncorrectSemicolons alone the duplicate stays. Reads only; changes nothing.
 
         Formerly Get-MalformedPathEntries in Scripts/System/Get-MalformedPathEntries-Sensor.ps1;
         that name is kept as an alias, and the script is now a thin wrapper around this function.
@@ -41,10 +47,12 @@ function Get-MalformedPathEntry {
         Formats the result as pipe-delimited lines, as the sensor script does.
 
     .NOTES
-        Known limitation: the semicolon-after-drive-root check never matches. PATH is split
-        first, so 'C:\;dir' arrives as two entries, C:\ and dir, and the check sees each
-        alone. Checking neighbouring entries as a pair would be a new feature, tracked in
-        issue #162. Part of the PathRepair module.
+        A drive root followed by a rooted entry (C:\;D:\Tools), a quoted one, or a join that
+        is not an existing directory is not a split entry. Nor is a join holding a %VAR%
+        reference: the process PATH is already expanded, so that %VAR% is one Windows did
+        not expand, and the pair follows the rule Repair-PathEntry uses in a REG_SZ PATH (no
+        join). The entry after the drive root is then checked on its own, as listed above.
+        Part of the PathRepair module.
     #>
     [CmdletBinding()]
     [Alias('Get-MalformedPathEntries')]
@@ -60,25 +68,42 @@ function Get-MalformedPathEntry {
     $pathEntries = @(Split-PathValue -Value $pathRaw.Trim(';'))
     $seenPaths = @{}
 
-    foreach ($entry in $pathEntries) {
+    for ($index = 0; $index -lt $pathEntries.Count; $index++) {
+        $entry = $pathEntries[$index]
         $suggestedEntry = $entry
         $issue = $null
+
+        # The pair is reported once, and the entry after the drive root is not checked alone.
+        if ($index + 1 -lt $pathEntries.Count) {
+            $next = $pathEntries[$index + 1]
+            $joined = Join-SplitDriveRoot -Entry $entry -Next $next
+            # The process PATH is already expanded, so any %VAR% still in it is one Windows did
+            # not expand: the REG_SZ rule of Repair-PathEntry applies, and such a pair is not
+            # joined. Its halves are checked one by one below.
+            if ($joined -and $joined -notmatch '%[^%;]+%' -and (Test-PathDirectory -Path $joined -Literal)) {
+                if ($seenPaths.ContainsKey($joined)) {
+                    [PSCustomObject]@{
+                        Entry          = "$entry;$next"
+                        Issue          = 'Incorrect semicolon after drive letter, joined entry is a duplicate'
+                        SuggestedEntry = 'Delete'
+                    }
+                } else {
+                    [PSCustomObject]@{
+                        Entry          = "$entry;$next"
+                        Issue          = 'Incorrect semicolon after drive letter, suggest joining'
+                        SuggestedEntry = $joined
+                    }
+                    $seenPaths[$joined] = $true
+                }
+                $index++
+                continue
+            }
+        }
 
         $quoteCount = ($entry -split '"').Count - 1
         if ($quoteCount % 2 -ne 0) {
             $suggestedEntry = $entry -replace '"', ''
             $issue = 'Unbalanced double-quotes, suggest removal'
-        }
-
-        if ($entry -match '^[A-Z]:\\;') {
-            $correctedPath = $entry -replace ':\\;', ':\'
-            if (Test-PathDirectory -Path $correctedPath) {
-                $suggestedEntry = $correctedPath
-                $issue = 'Incorrect semicolon after drive letter, suggest valid path'
-            } else {
-                $suggestedEntry = 'Delete'
-                $issue = 'Incorrect semicolon after drive letter, no valid path found'
-            }
         }
 
         if ([string]::IsNullOrWhiteSpace($entry)) {

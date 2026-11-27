@@ -10,8 +10,8 @@ function Invoke-PathRepairCore {
 
     .DESCRIPTION
         Reads the raw User-scope PATH (Read-UserEnvironmentValue, so %VAR% references stay
-        as written), splits it with Split-PathValue, and works out which entries to fix or
-        remove for each selected issue type. For a REG_EXPAND_SZ PATH, directory checks
+        as written), or takes Value and Kind instead, splits it with Split-PathValue, and
+        works out which entries to fix or remove for each selected issue type. For a REG_EXPAND_SZ PATH, directory checks
         expand %VAR% for the check only; duplicates are compared by their text as written,
         so %USERPROFILE%\bin and its expansion are two different entries. An entry whose
         %VAR% reference this process cannot expand is never removed as non-existent, and
@@ -25,12 +25,18 @@ function Invoke-PathRepairCore {
         is never changed. Throws when the User PATH is empty. Writes nothing: Write-RepairedPath
         applies the result.
 
+        With IncorrectSemicolons selected, Joins lists the split drive roots that
+        Get-PathJoinCandidate finds in Entries. They are not part of Changes or NewPath: the
+        caller asks about them first, then plans the PATH with the approved joins applied by
+        calling this function again with Value and Kind.
+
         Outputs one object with ComputerName, OriginalPath, OriginalKind (the registry
         value kind of PATH, String or ExpandString, that the checks above assumed),
         Entries (the split entries), NewPath (every change applied), Changes (one object per changed entry: Index into
         Entries, Entry, NewEntry, which is $null for a removal, Reason, and DuplicateOf,
-        the Index of the kept entry a Duplicate removal copies, else $null) and Applied,
-        which is always $false. Private to PathRepair.
+        the Index of the kept entry a Duplicate removal copies, else $null), Joins (the
+        candidate joins, in the same form, empty unless IncorrectSemicolons is selected) and
+        Applied, which is always $false. Private to PathRepair.
 
     .PARAMETER FixTypes
         Issue types to fix: UnbalancedQuotes, IncorrectSemicolons, Duplicates,
@@ -41,6 +47,13 @@ function Invoke-PathRepairCore {
         whether UNC as written or once their %VAR% is expanded (for a %VAR% that expands to
         several entries, any UNC one keeps the entry). A remote session cannot reach
         network shares, so they always look missing there.
+
+    .PARAMETER Value
+        A PATH value to plan instead of the User PATH, such as the User PATH with the
+        approved joins applied. Read-UserEnvironmentValue is then not called.
+
+    .PARAMETER Kind
+        With Value: the registry value kind (String or ExpandString) to check it under.
 
     .EXAMPLE
         Invoke-PathRepairCore -FixTypes Duplicates
@@ -55,10 +68,18 @@ function Invoke-PathRepairCore {
     param (
         [string[]]$FixTypes,
 
-        [bool]$SkipUnc = $false
+        [bool]$SkipUnc = $false,
+
+        [string]$Value,
+
+        [string]$Kind
     )
 
-    $pathValue = Read-UserEnvironmentValue -Name 'PATH'
+    if ($PSBoundParameters.ContainsKey('Value')) {
+        $pathValue = [pscustomobject]@{ Value = $Value; Kind = $Kind }
+    } else {
+        $pathValue = Read-UserEnvironmentValue -Name 'PATH'
+    }
     $pathRaw = $pathValue.Value
     if ([string]::IsNullOrEmpty($pathRaw)) {
         throw 'The User PATH environment variable is empty or not set.'
@@ -69,6 +90,10 @@ function Invoke-PathRepairCore {
     # Not trimmed: a leading or trailing empty entry is a blank entry like any other, so it is
     # removed only through BlankEntries and ShouldProcess, and kept when BlankEntries is off.
     $entries = @(Split-PathValue -Value $pathRaw)
+    $joins = @()
+    if ('IncorrectSemicolons' -in $FixTypes) {
+        $joins = @(Get-PathJoinCandidate -Entries $entries -Literal $literalKind)
+    }
     $seenPaths = @{}
     $fixedPath = New-Object System.Collections.Generic.List[string]
     $changes = New-Object System.Collections.Generic.List[object]
@@ -209,7 +234,61 @@ function Invoke-PathRepairCore {
         Entries      = $entries
         NewPath      = $fixedPath.ToArray() -join ';'
         Changes      = $changes.ToArray()
+        Joins        = $joins
         Applied      = $false
+    }
+}
+
+function Get-PathJoinCandidate {
+    <#
+    .SYNOPSIS
+        Finds the PATH entries split in two by a semicolon after a drive root.
+
+    .DESCRIPTION
+        For each entry that Join-SplitDriveRoot can join with the entry after it (a bare
+        drive root then a relative entry, as in C:\;Program Files\Foo), outputs one join when
+        the joined path is an existing directory. With Literal (a REG_SZ PATH, where Windows
+        does not expand %VAR%) the joined path is checked as written, and a joined path
+        holding a %VAR% reference is never offered: a folder of that literal name is not the
+        one meant. Otherwise %VAR% is expanded for the check. A joined path starts with a
+        drive root, so it is never UNC. The entry after a drive root is never itself a drive
+        root, so two joins never share an entry.
+
+        Each join has Index (the drive root's index in Entries; the join also takes the
+        entry at Index + 1), Entry (the pair as it appears in PATH, C:\;Program Files\Foo),
+        NewEntry (the joined path), Reason, and DuplicateOf, which is always $null. Private
+        to PathRepair.
+
+    .PARAMETER Entries
+        The split PATH entries.
+
+    .PARAMETER Literal
+        $true for a REG_SZ PATH.
+
+    .EXAMPLE
+        Get-PathJoinCandidate -Entries 'C:\', 'Tools' -Literal $true
+
+    .EXAMPLE
+        Get-PathJoinCandidate -Entries @(Split-PathValue -Value $pathRaw) -Literal $false
+
+    .NOTES
+        None.
+    #>
+    [CmdletBinding()]
+    param (
+        [AllowEmptyString()]
+        [AllowEmptyCollection()]
+        [string[]]$Entries,
+
+        [bool]$Literal
+    )
+
+    for ($index = 0; $index + 1 -lt $Entries.Count; $index++) {
+        $joined = Join-SplitDriveRoot -Entry $Entries[$index] -Next $Entries[$index + 1]
+        if ($joined -and -not ($Literal -and $joined -match '%[^%;]+%') -and (Test-PathDirectory -Path $joined -Literal:$Literal)) {
+            [pscustomobject]@{ Index = $index; Entry = "$($Entries[$index]);$($Entries[$index + 1])"; NewEntry = $joined
+                Reason = 'Incorrect semicolon after drive letter'; DuplicateOf = $null }
+        }
     }
 }
 
@@ -370,6 +449,124 @@ function Select-ApprovedPathChange {
     }
 }
 
+function Select-ApprovedPathRepair {
+    <#
+    .SYNOPSIS
+        Plans a PATH repair in two phases, the joins and then the rest, asking about each change.
+
+    .DESCRIPTION
+        Phase 1 plans the User PATH as read, with Invoke-PathRepairTarget (so on the target
+        computer), calls ShouldProcess on Cmdlet once per join in the plan's Joins, and
+        applies only the approved ones to its Entries. Under -WhatIf every join is listed and
+        assumed approved, so the preview shows the whole repair. Phase 2 plans that PATH
+        again with Invoke-PathRepairTarget (Value set to it, Kind to the kind read in phase
+        1) and passes the plan to Select-ApprovedPathChange. With no join approved, the
+        phase 1 plan is the phase 2 plan, so a PATH with no join, or whose joins are all
+        declined, is repaired exactly as it is without joins: both halves of a declined join
+        are left to the other checks. A join whose result repeats an earlier entry is two
+        questions, the join and then the duplicate removal. The warnings of the plan used
+        in phase 2 are shown, once, before its questions; those of a phase 1 plan that is
+        planned again are not.
+
+        Outputs one object with Preview (the phase 1 plan: ComputerName, OriginalPath and
+        OriginalKind of the PATH as read), Plan (the phase 2 plan), NewPath (the PATH to
+        write), Changes (the approved joins, then the approved phase 2 changes; under
+        -WhatIf none, so nothing is written) and Proposed (the approved or, under -WhatIf,
+        assumed joins, then every change in Plan: the repair as previewed). When either plan
+        fails, writes an error naming Target, asks nothing more and outputs nothing.
+        Private to PathRepair.
+
+    .PARAMETER Cmdlet
+        The calling cmdlet ($PSCmdlet), or any object with a ShouldProcess(target, action)
+        method that returns a bool.
+
+    .PARAMETER Target
+        The ShouldProcess target text, such as 'User PATH on PC01'.
+
+    .PARAMETER TargetParams
+        The FixTypes, ComputerName and Credential parameters for Invoke-PathRepairTarget.
+
+    .EXAMPLE
+        Select-ApprovedPathRepair -Cmdlet $PSCmdlet -Target 'User PATH on this computer' -TargetParams @{ FixTypes = $FixTypes }
+
+    .EXAMPLE
+        (Select-ApprovedPathRepair -Cmdlet $PSCmdlet -Target $target -TargetParams $targetParams).NewPath
+
+    .NOTES
+        None.
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        $Cmdlet,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Target,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$TargetParams
+    )
+
+    # Warnings come back in the output (3>&1), to be shown only for the plan that is used.
+    try {
+        $output = @(Invoke-PathRepairTarget @TargetParams 3>&1)
+    } catch {
+        Write-Error "An error occurred while processing the $Target`: $($_.Exception.Message)"
+        return
+    }
+    $warnings = @($output | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+    $preview = @($output | Where-Object { $_ -isnot [System.Management.Automation.WarningRecord] })[-1]
+
+    $approved = @{}
+    # The joins actually approved: under -WhatIf none is, so nothing is written.
+    $confirmed = @{}
+    foreach ($join in @($preview.Joins | Where-Object { $null -ne $_ })) {
+        $action = "Replace entry '$($join.Entry)' with '$($join.NewEntry)' ($($join.Reason))"
+        # ShouldProcess returns $false under -WhatIf, after listing the join.
+        if ($Cmdlet.ShouldProcess($Target, $action)) {
+            $confirmed[[int]$join.Index] = $true
+            $approved[[int]$join.Index] = $join
+        } elseif ($WhatIfPreference) {
+            $approved[[int]$join.Index] = $join
+        }
+    }
+
+    $plan = $preview
+    if ($approved.Count -gt 0) {
+        $joined = New-Object System.Collections.Generic.List[string]
+        $entries = @($preview.Entries)
+        for ($index = 0; $index -lt $entries.Count; $index++) {
+            if ($approved.ContainsKey($index)) {
+                $joined.Add($approved[$index].NewEntry)
+                $index++
+            } else {
+                $joined.Add($entries[$index])
+            }
+        }
+        try {
+            $output = @(Invoke-PathRepairTarget @TargetParams -Value ($joined.ToArray() -join ';') -Kind $preview.OriginalKind 3>&1)
+        } catch {
+            Write-Error "An error occurred while processing the $Target`: $($_.Exception.Message)"
+            return
+        }
+        $warnings = @($output | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+        $plan = @($output | Where-Object { $_ -isnot [System.Management.Automation.WarningRecord] })[-1]
+    }
+    foreach ($warning in $warnings) {
+        Write-Warning $warning.Message
+    }
+    $joins = @($approved.Keys | Sort-Object | ForEach-Object { $approved[$_] })
+    $selection = Select-ApprovedPathChange -Cmdlet $Cmdlet -Target $Target -Plan $plan
+
+    [pscustomobject]@{
+        Preview  = $preview
+        Plan     = $plan
+        NewPath  = $selection.NewPath
+        Changes  = @($joins | Where-Object { $confirmed.ContainsKey([int]$_.Index) }) + @($selection.Changes)
+        Proposed = @($joins) + @($plan.Changes)
+    }
+}
+
 function Get-PathRepairRemoteScriptBlock {
     <#
     .SYNOPSIS
@@ -378,12 +575,13 @@ function Get-PathRepairRemoteScriptBlock {
     .DESCRIPTION
         Returns a script block that defines Invoke-PathRepairCore, Write-RepairedPath and
         the helpers they call (Read-UserEnvironmentValue, Write-UserEnvironmentValue,
-        Send-EnvironmentChange, Test-PathDirectory, Split-PathValue) from their current
-        definitions. Its positional
+        Send-EnvironmentChange, Test-PathDirectory, Join-SplitDriveRoot,
+        Get-PathJoinCandidate, Split-PathValue) from their current definitions. Its positional
         arguments are Apply, FixTypes, OriginalPath, NewPath and OriginalKind: with Apply $false it calls
-        Invoke-PathRepairCore with SkipUnc $true, with Apply $true it calls
-        Write-RepairedPath. Pass it to Invoke-Command with -ArgumentList. Private to
-        PathRepair.
+        Invoke-PathRepairCore with SkipUnc $true, on the User PATH or, when NewPath is not
+        empty, on NewPath (the User PATH with the approved joins applied) as a value of kind
+        OriginalKind. With Apply $true it calls Write-RepairedPath. Pass it to Invoke-Command
+        with -ArgumentList. Private to PathRepair.
 
     .EXAMPLE
         Invoke-Command -ComputerName PC01 -ScriptBlock (Get-PathRepairRemoteScriptBlock) -ArgumentList $false, @('Duplicates'), '', '', ''
@@ -396,12 +594,14 @@ function Get-PathRepairRemoteScriptBlock {
     param ()
 
     $names = 'Read-UserEnvironmentValue', 'Write-UserEnvironmentValue', 'Send-EnvironmentChange', 'Test-PathDirectory',
-        'Split-PathValue', 'Invoke-PathRepairCore', 'Write-RepairedPath'
+        'Join-SplitDriveRoot', 'Get-PathJoinCandidate', 'Split-PathValue', 'Invoke-PathRepairCore', 'Write-RepairedPath'
     $parts = foreach ($name in $names) {
         "function $name {`n$((Get-Command -Name $name -CommandType Function).ScriptBlock)`n}"
     }
     $head = 'param([bool]$Apply, [string[]]$FixTypes, [string]$OriginalPath, [string]$NewPath, [string]$OriginalKind)'
-    $tail = 'if ($Apply) { Write-RepairedPath -OriginalPath $OriginalPath -OriginalKind $OriginalKind -NewPath $NewPath } else { Invoke-PathRepairCore -FixTypes $FixTypes -SkipUnc $true }'
+    $tail = 'if ($Apply) { Write-RepairedPath -OriginalPath $OriginalPath -OriginalKind $OriginalKind -NewPath $NewPath } ' +
+        'elseif ($NewPath) { Invoke-PathRepairCore -FixTypes $FixTypes -SkipUnc $true -Value $NewPath -Kind $OriginalKind } ' +
+        'else { Invoke-PathRepairCore -FixTypes $FixTypes -SkipUnc $true }'
     [scriptblock]::Create((@($head) + @($parts) + $tail) -join "`n")
 }
 
@@ -411,7 +611,8 @@ function Invoke-PathRepairTarget {
         Previews or applies a repair on this computer or, through Invoke-Command, on another.
 
     .DESCRIPTION
-        Without Apply, calls Invoke-PathRepairCore; with Apply, calls Write-RepairedPath.
+        Without Apply, calls Invoke-PathRepairCore, on the User PATH or, given Value, on
+        Value as a PATH of kind Kind; with Apply, calls Write-RepairedPath.
         Without ComputerName this runs here. With it, runs the script block from
         Get-PathRepairRemoteScriptBlock on that computer with -ErrorAction Stop, so a
         remoting or repair failure throws. Outputs what the called function outputs.
@@ -438,6 +639,13 @@ function Invoke-PathRepairTarget {
     .PARAMETER NewPath
         With Apply: the repaired User PATH to write.
 
+    .PARAMETER Value
+        Without Apply: a PATH value to plan instead of the User PATH (the User PATH with the
+        approved joins applied). Remotely it is sent in the NewPath argument.
+
+    .PARAMETER Kind
+        With Value: the registry value kind the User PATH had when it was read.
+
     .EXAMPLE
         Invoke-PathRepairTarget -FixTypes Duplicates
 
@@ -462,19 +670,30 @@ function Invoke-PathRepairTarget {
         [string]$OriginalKind,
 
         [AllowEmptyString()]
-        [string]$NewPath
+        [string]$NewPath,
+
+        [string]$Value,
+
+        [string]$Kind
     )
 
     if (-not $ComputerName) {
         if ($Apply) {
             return Write-RepairedPath -OriginalPath $OriginalPath -OriginalKind $OriginalKind -NewPath $NewPath
         }
+        if ($Value) {
+            return Invoke-PathRepairCore -FixTypes $FixTypes -Value $Value -Kind $Kind
+        }
         return Invoke-PathRepairCore -FixTypes $FixTypes
+    }
+    $arguments = @([bool]$Apply, $FixTypes, $OriginalPath, $NewPath, $OriginalKind)
+    if (-not $Apply -and $Value) {
+        $arguments = @($false, $FixTypes, '', $Value, $Kind)
     }
     $invokeParams = @{
         ComputerName = $ComputerName
         ScriptBlock  = Get-PathRepairRemoteScriptBlock
-        ArgumentList = @([bool]$Apply, $FixTypes, $OriginalPath, $NewPath, $OriginalKind)
+        ArgumentList = $arguments
         ErrorAction  = 'Stop'
     }
     if ($Credential) {

@@ -288,6 +288,51 @@ function Test-PathDirectory {
     [System.IO.Directory]::Exists($trimmed)
 }
 
+function Join-SplitDriveRoot {
+    <#
+    .SYNOPSIS
+        Joins a bare drive root and the relative entry after it, when they read as one path.
+
+    .DESCRIPTION
+        A misplaced semicolon (C:\;Program Files\Foo) splits one PATH entry into a bare
+        drive root and a relative remainder. When Entry is an unquoted bare drive root (X:\)
+        and Next is relative (not blank, no drive, not starting with a backslash, a slash, %,
+        a dot or white space, and holding no double quote anywhere), outputs the joined path
+        X:\<Next>. Otherwise outputs $null, so a stray quote is left to UnbalancedQuotes.
+        Checks text only; whether the joined path exists is the caller's test. Private to
+        PathRepair.
+
+    .PARAMETER Entry
+        The PATH entry that may be a bare drive root.
+
+    .PARAMETER Next
+        The PATH entry right after it.
+
+    .EXAMPLE
+        Join-SplitDriveRoot -Entry 'C:\' -Next 'Program Files\Foo'
+
+    .EXAMPLE
+        Join-SplitDriveRoot -Entry 'C:\' -Next 'D:\Tools'
+
+    .NOTES
+        None.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param (
+        [AllowEmptyString()]
+        [string]$Entry,
+
+        [AllowEmptyString()]
+        [string]$Next
+    )
+
+    if ($Entry -notmatch '^[A-Za-z]:\\$' -or [string]::IsNullOrWhiteSpace($Next) -or $Next -match '^([A-Za-z]:|[\\/%.\s])' -or $Next.Contains('"')) {
+        return $null
+    }
+    $Entry + $Next
+}
+
 function Split-PathValue {
     <#
     .SYNOPSIS
