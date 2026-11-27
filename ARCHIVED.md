@@ -87,3 +87,18 @@ they cannot run as written. Last commit that has them: `7d81d42125ed`.
 | `Scripts/Application/stopSMC.ps1` | Disabled and stopped the Symantec Endpoint Protection client through smc.exe (obsolete product; companion of StartSMC.ps1). |
 | `Scripts/Development/Test-AAfDConfigFile.ps1` | Compared a contact-center agent config file to a hard-coded expected hash for one internal deployment. |
 | `Scripts/Utilities/RecieverCleanupUtilityWrapper.ps1` | Unfinished stub for a Citrix Receiver clean-up (obsolete product, replaced by Workspace app). |
+
+## Retired scripts (#135, 2026-11)
+
+These scripts were retired because they cannot deliver their purpose as written, because a
+near-duplicate supersedes them, or because the product they targeted is gone. Last commit that
+has them: `62aa6bae2a98`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/FileSystem/FindPSTFiles-Package.ps1` | Tried to list .pst files on local drives as JSON; the list was wrong (one file per drive, empty path field). |
+| `Scripts/Utilities/FindPSTSensor.ps1` | Printed the PST inventory JSON as pipe-delimited lines; its only input came from FindPSTFiles-Package.ps1, so it read a file nothing produces. |
+| `Scripts/FileSystem/Get-8021x_Profiles.ps1` | Parsed netsh lan profiles and printed the first profile's 802.1X settings; a near-duplicate of Get-WiredLANProfile.ps1, which uses the same parser and also reports and starts the dot3svc service. |
+| `Scripts/FileSystem/getVPNProfileReady-Sensor.ps1` | Sensor that reported ready when IP Helper was automatic and running and the AnyConnect profile was set; the profile half of the check was a no-op. |
+| `Scripts/FileSystem/Set-AnyConnectLocalProxy.ps1` | Set AllowLocalProxyConnections in the Cisco AnyConnect Secure Mobility Client 4.x profile XMLs (obsolete product; the folder was renamed in Cisco Secure Client 5.x). |
+| `Scripts/FileSystem/Uninstall OneDrive-Package.ps1` | Uninstalled OneDrive from the Windows 10 inbox installer locations and removed its folders (obsolete product; the explorer stop step never worked). |
