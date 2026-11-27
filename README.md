@@ -2,14 +2,14 @@
 
 ## Status
 
-**Cleanup in progress**
+**Cleanup in progress: modules built, retired scripts being archived**
 
 This repository was created from a reorganization of a monolithic PowerShell script collection.
-Scripts are being documented, tested, and consolidated into modules; see the tracking issues
-[#4 (help)](https://github.com/jesse-slaton/powershell-utilities/issues/4),
-[#1 (tests and CI)](https://github.com/jesse-slaton/powershell-utilities/issues/1),
-[#2 (modules)](https://github.com/jesse-slaton/powershell-utilities/issues/2), and
-[#3 (legacy API modernization)](https://github.com/jesse-slaton/powershell-utilities/issues/3).
+Every script has comment-based help, legacy WMI calls are replaced with CIM, and related scripts
+are consolidated into the modules below. Scripts that the PowerShell 7 inventory
+([MIGRATION.md](MIGRATION.md)) marks retire are now being archived (milestone M5), and behavior tests
+for the scripts that remain come next (M7); see the tracking issues [#2 (modules)](https://github.com/jesse-slaton/powershell-utilities/issues/2) and
+[#1 (tests and CI)](https://github.com/jesse-slaton/powershell-utilities/issues/1).
 
 > **Note**: Path Commander (the Windows PATH TUI manager) has been moved to its own repository:
 > https://github.com/jesse-slaton/cli-tools
@@ -22,10 +22,10 @@ General-purpose PowerShell utilities for system administration
 
 - [x] Initial import complete
 - [x] VBScript dependencies removed
-- [ ] Comment-based help on every script (#4)
+- [x] Comment-based help on every script (#4)
 - [ ] Real Pester tests and CI (#1)
 - [ ] Related scripts consolidated into modules (#2)
-- [ ] `Get-WmiObject` replaced with CIM cmdlets (#3)
+- [x] `Get-WmiObject` replaced with CIM cmdlets (#3)
 
 ## Structure
 
