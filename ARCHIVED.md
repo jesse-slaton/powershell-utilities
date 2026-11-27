@@ -139,3 +139,19 @@ or because the product they targeted is obsolete. Last commit that has them: `4d
 | `Scripts/General/Set-URLInfoAbout-Package.ps1` | Rewrote uninstall-entry support links to one endpoint product's 8.5 documentation (obsolete product, org-specific deployment tweak). |
 | `Scripts/General/Show-ProcessTree-Sensor.ps1` | Unfinished sensor meant to print a process tree; a read-only `$pid` assignment and a broken filter made its output unusable. |
 | `Scripts/General/StuffedScopeArray.ps1` | Sensor mapping the primary adapter's subnet to a location using an internally staged location file under a hard-coded support-tools folder (org-specific). |
+
+## Retired scripts (#139, 2026-11)
+
+These scripts were retired because the products or features they targeted are obsolete, or
+because they were broken. Last commit that has them: `14ab2eda3e19`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/Network/Debloat Windows.ps1` | Removed AppX packages named in a Windows 10 era sponsored-app list and purged everything outside an allowlist (obsolete product, destructive). |
+| `Scripts/Network/Disable Cortana.ps1` | Set per-user registry values to disable a discontinued assistant (obsolete product). |
+| `Scripts/Network/Enable Cortana.ps1` | Set per-user registry values to enable a discontinued assistant (obsolete product). |
+| `Scripts/Network/Enable Edge PDF.ps1` | Removed .pdf NoOpenWith values for the legacy browser engine's AppX ProgID; the key-rename logic was broken (obsolete product). |
+| `Scripts/Network/Stop Edge PDF.ps1` | Added .pdf NoOpenWith values for the legacy browser engine's AppX ProgID; the key-rename logic was broken (obsolete product). |
+| `Scripts/Network/Protect Privacy-Package.ps1` | Applied a Windows 10 1709-era set of privacy tweaks to registry, tasks and services; now handled by policy (obsolete product). |
+| `Scripts/Network/Revert Changes.ps1` | Partial undo of the retired debloat and privacy scripts (obsolete product). |
+| `Scripts/Network/Fix Whitelisted Apps-Sensor.ps1` | Meant to re-register a few preinstalled apps, but its if test was never true on a normal system, so it did nothing; it also targeted a discontinued preinstalled app (broken/incomplete). |
