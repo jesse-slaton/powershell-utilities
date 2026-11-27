@@ -111,6 +111,36 @@ Describe 'Get-MalformedPathEntry' {
         $result[0].SuggestedEntry | Should -Be 'Delete'
     }
 
+    It 'reports a later entry equal to a proposed join as a duplicate only once the join is applied' {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair { 'C:\;Tools;C:\Tools' }
+        Mock Test-PathDirectory -ModuleName PathRepair { $true }
+        $result = @(Get-MalformedPathEntry)
+        $result.Count | Should -Be 2
+        $result[0].SuggestedEntry | Should -BeExactly 'C:\Tools'
+        $result[1].Entry | Should -BeExactly 'C:\Tools'
+        $result[1].Issue | Should -Be "Duplicate of the joined entry 'C:\Tools' above, only once that join is applied"
+        $result[1].SuggestedEntry | Should -Be 'Delete after joining'
+        $result[1].SuggestedEntry | Should -Not -Be 'Delete'
+    }
+
+    It 'keeps the combined Delete when a join repeats an earlier real entry' {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair { 'C:\Tools;C:\;Tools' }
+        Mock Test-PathDirectory -ModuleName PathRepair { $true }
+        $result = @(Get-MalformedPathEntry)
+        $result.Count | Should -Be 1
+        $result[0].Issue | Should -Be 'Incorrect semicolon after drive letter, joined entry is a duplicate'
+        $result[0].SuggestedEntry | Should -Be 'Delete'
+    }
+
+    It 'keeps a plain duplicate Delete for a repeat of a real entry' {
+        Mock Read-EnvironmentVariable -ModuleName PathRepair { 'C:\Tools;C:\Tools' }
+        Mock Test-PathDirectory -ModuleName PathRepair { $true }
+        $result = @(Get-MalformedPathEntry)
+        $result.Count | Should -Be 1
+        $result[0].Issue | Should -Be 'Duplicate entry'
+        $result[0].SuggestedEntry | Should -Be 'Delete'
+    }
+
     It 'does not join a drive root and an entry holding a %VAR% Windows did not expand, reporting that entry instead' {
         $varName = 'PATHREPAIR_TEST_{0}' -f [guid]::NewGuid().ToString('N')
         [System.Environment]::SetEnvironmentVariable($varName, 'Good', 'Process')
@@ -1335,6 +1365,54 @@ Describe 'Invoke-PathRepairCore' {
             @($plan.Changes).Count | Should -Be 1
             @($plan.Changes)[0].Entry | Should -BeExactly 'Tools'
             $plan.NewPath | Should -BeExactly 'C:\;C:\Good'
+        }
+    }
+
+    It 'offers no join in a REG_EXPAND_SZ PATH when the expansion holds a semicolon' {
+        $varName = 'PSU_JOIN_TEST_{0}' -f [guid]::NewGuid().ToString('N')
+        [System.Environment]::SetEnvironmentVariable($varName, 'a;b', 'Process')
+        try {
+            InModuleScope PathRepair -Parameters @{ VarName = $varName } {
+                param($VarName)
+                # The folder named for the literal expansion would pass the existence check.
+                Mock Test-PathDirectory { $true }
+                @(Get-PathJoinCandidate -Entries 'C:\', "Tools\%$VarName%" -Literal $false).Count | Should -Be 0
+                Should -Invoke Test-PathDirectory -Times 0 -Exactly
+            }
+        } finally {
+            [System.Environment]::SetEnvironmentVariable($varName, $null, 'Process')
+        }
+    }
+
+    It 'still offers a join in a REG_EXPAND_SZ PATH when the expansion is one folder, keeping the raw text' {
+        $varName = 'PSU_JOIN_TEST_{0}' -f [guid]::NewGuid().ToString('N')
+        [System.Environment]::SetEnvironmentVariable($varName, 'v1', 'Process')
+        try {
+            InModuleScope PathRepair -Parameters @{ VarName = $varName } {
+                param($VarName)
+                Mock Test-PathDirectory { $true }
+                $joins = @(Get-PathJoinCandidate -Entries 'C:\', "Tools\%$VarName%" -Literal $false)
+                $joins.Count | Should -Be 1
+                $joins[0].NewEntry | Should -BeExactly "C:\Tools\%$VarName%"
+            }
+        } finally {
+            [System.Environment]::SetEnvironmentVariable($varName, $null, 'Process')
+        }
+    }
+
+    It 'refuses an explicit empty Value without reading the registry or calling Invoke-Command (<Name>)' -ForEach @(
+        @{ Name = 'local'; Computer = $null }
+        @{ Name = 'remote'; Computer = 'PC01' }
+    ) {
+        InModuleScope PathRepair -Parameters @{ Computer = $Computer } {
+            param($Computer)
+            Mock Read-UserEnvironmentValue { [pscustomobject]@{ Value = 'C:\A'; Kind = 'String' } }
+            Mock Invoke-Command { }
+            $params = @{ FixTypes = 'Duplicates'; Value = '' }
+            if ($Computer) { $params['ComputerName'] = $Computer }
+            { Invoke-PathRepairTarget @params } | Should -Throw '*No PATH text to plan; nothing written*'
+            Should -Invoke Read-UserEnvironmentValue -Times 0 -Exactly
+            Should -Invoke Invoke-Command -Times 0 -Exactly
         }
     }
 

@@ -29,7 +29,11 @@ function Get-MalformedPathEntry {
         entry stays a Duplicate entry (Delete): the first copy carries the %VAR% report.
         SuggestedEntry is either a corrected entry or the word Delete. For a split drive
         root, Entry is the pair as it appears in PATH and SuggestedEntry the joined path, or
-        Delete when the joined path repeats an earlier entry. Repair-PathEntry handles that
+        Delete when the joined path repeats an earlier entry. A later entry equal to a joined
+        path (C:\;Tools;C:\Tools) is a duplicate only once that join is applied, so it is
+        reported with the Issue naming the joined entry and SuggestedEntry 'Delete after
+        joining' (not a bare Delete); a later entry equal to a real earlier entry stays a plain
+        duplicate to Delete. Repair-PathEntry handles that
         case as two questions, the join and then a Duplicates removal, so with -FixTypes
         IncorrectSemicolons alone the duplicate stays. Reads only; changes nothing.
 
@@ -67,6 +71,9 @@ function Get-MalformedPathEntry {
     # Remove leading/trailing semicolons and split on semicolons outside quotes
     $pathEntries = @(Split-PathValue -Value $pathRaw.Trim(';'))
     $seenPaths = @{}
+    # Joined paths proposed so far. A later entry equal to one is a duplicate only once that join
+    # is applied, so it is not in $seenPaths (which holds real entries).
+    $joinedPaths = @{}
 
     for ($index = 0; $index -lt $pathEntries.Count; $index++) {
         $entry = $pathEntries[$index]
@@ -81,7 +88,7 @@ function Get-MalformedPathEntry {
             # not expand: the REG_SZ rule of Repair-PathEntry applies, and such a pair is not
             # joined. Its halves are checked one by one below.
             if ($joined -and $joined -notmatch '%[^%;]+%' -and (Test-PathDirectory -Path $joined -Literal)) {
-                if ($seenPaths.ContainsKey($joined)) {
+                if ($seenPaths.ContainsKey($joined) -or $joinedPaths.ContainsKey($joined)) {
                     [PSCustomObject]@{
                         Entry          = "$entry;$next"
                         Issue          = 'Incorrect semicolon after drive letter, joined entry is a duplicate'
@@ -93,7 +100,7 @@ function Get-MalformedPathEntry {
                         Issue          = 'Incorrect semicolon after drive letter, suggest joining'
                         SuggestedEntry = $joined
                     }
-                    $seenPaths[$joined] = $true
+                    $joinedPaths[$joined] = $true
                 }
                 $index++
                 continue
@@ -117,6 +124,11 @@ function Get-MalformedPathEntry {
             $suggestedEntry = 'Delete'
         } else {
             $seenPaths[$entry] = $true
+            if ($joinedPaths.ContainsKey($entry)) {
+                # Only a proposed join repeats it: deleting this copy without that join would lose it.
+                $issue = "Duplicate of the joined entry '$entry' above, only once that join is applied"
+                $suggestedEntry = 'Delete after joining'
+            }
         }
 
         # The process PATH is already expanded, so a %VAR% left in it was never expanded by

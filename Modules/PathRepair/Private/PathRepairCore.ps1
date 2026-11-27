@@ -250,7 +250,8 @@ function Get-PathJoinCandidate {
         the joined path is an existing directory. With Literal (a REG_SZ PATH, where Windows
         does not expand %VAR%) the joined path is checked as written, and a joined path
         holding a %VAR% reference is never offered: a folder of that literal name is not the
-        one meant. Otherwise %VAR% is expanded for the check. A joined path starts with a
+        one meant. Otherwise %VAR% is expanded for the check, and a join whose expansion
+        holds a semicolon is never offered (Windows would split it in two). A joined path starts with a
         drive root, so it is never UNC. The entry after a drive root is never itself a drive
         root, so two joins never share an entry.
 
@@ -285,6 +286,11 @@ function Get-PathJoinCandidate {
 
     for ($index = 0; $index + 1 -lt $Entries.Count; $index++) {
         $joined = Join-SplitDriveRoot -Entry $Entries[$index] -Next $Entries[$index + 1]
+        # In a REG_EXPAND_SZ PATH Windows expands first and then splits, so a join whose
+        # expansion holds a semicolon would become two entries, not one folder.
+        if ($joined -and -not $Literal -and [System.Environment]::ExpandEnvironmentVariables($joined).Contains(';')) {
+            continue
+        }
         if ($joined -and -not ($Literal -and $joined -match '%[^%;]+%') -and (Test-PathDirectory -Path $joined -Literal:$Literal)) {
             [pscustomobject]@{ Index = $index; Entry = "$($Entries[$index]);$($Entries[$index + 1])"; NewEntry = $joined
                 Reason = 'Incorrect semicolon after drive letter'; DuplicateOf = $null }
@@ -677,6 +683,10 @@ function Invoke-PathRepairTarget {
         [string]$Kind
     )
 
+    if (-not $Apply -and $PSBoundParameters.ContainsKey('Value') -and [string]::IsNullOrEmpty($Value)) {
+        # An explicit empty Value is not a missing one: never fall back to the registry PATH.
+        throw 'No PATH text to plan; nothing written.'
+    }
     if (-not $ComputerName) {
         if ($Apply) {
             return Write-RepairedPath -OriginalPath $OriginalPath -OriginalKind $OriginalKind -NewPath $NewPath
