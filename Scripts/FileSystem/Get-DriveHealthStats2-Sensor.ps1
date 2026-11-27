@@ -1,18 +1,30 @@
-﻿<#
+<#
 .SYNOPSIS
-    Reports selected SMART attribute values from smartctl as one pipe-delimited line.
+    Reports selected SMART attribute values from smartctl as pipe-delimited lines.
 
 .DESCRIPTION
-    For each fixed logical disk (Win32_LogicalDisk, DriveType 3) runs
-    'smartctl -A <DriveLetter>' and parses the attribute table, adding the disk's
-    FriendlyName and SerialNumber from Get-Partition | Get-Disk. The attribute list is
-    reset for each drive, so only the last drive's attributes are kept. It then writes
-    one line with Write-Host:
+    Thin wrapper kept at this path because a deployment tool runs it by name (the -Sensor
+    suffix). Imports the StorageHealth module, calls Get-DriveHealth -Source Smartctl and
+    writes one line per fixed drive that smartctl reports attributes for:
 
         <DriveLetter>|<FriendlyName>|<SerialNumber>|<5>|<187>|<188>|<197>|<198>
 
     where the numbered fields are the normalized VALUE column of SMART attributes 5, 187,
-    188, 197 and 198 (empty when the attribute is not reported). Read-only.
+    188, 197 and 198 (empty when the attribute is not reported). Reads only; changes
+    nothing. The logic and its help live in the module (Get-Help Get-DriveHealth -Full).
+
+    Output change from the former script: it wrote one line for the last drive only; this
+    writes one line per drive, and no line when no drive reports SMART attributes.
+
+    When the module cannot be loaded, writes the single line
+    'StorageHealth module not found|Sensor error|<message>|||||' and exits 1, so a broken
+    deployment is never read as "no drive reported". When a drive cannot be read (smartctl
+    cannot open a VHD, a Storage Spaces or RAID volume, or some USB enclosures), the other
+    drives are still reported, followed by one
+    'Drive health could not be read|Sensor error|<message>|||||' line per failure, and the
+    sensor exits 1. A failure that stops the whole read (for example, no Storage module)
+    writes that line once and exits 1. Every error line has the same eight columns as a
+    drive line.
 
 .EXAMPLE
     .\Get-DriveHealthStats2-Sensor.ps1
@@ -20,49 +32,48 @@
     C:|<FriendlyName>|<SerialNumber>|<Value5>|<Value187>|<Value188>|<Value197>|<Value198>
 
 .NOTES
-    Written as a Tanium sensor. Requires smartctl.exe (smartmontools) on the PATH,
-    administrator rights, and the Storage module (Get-Partition, Get-Disk). Uses the CIM
-    cmdlets; runs on Windows PowerShell 5.1 and PowerShell 7.
+    Needs the StorageHealth module either at ..\..\Modules\StorageHealth relative to this
+    script, as it is in a clone of this repository, or installed in a folder on
+    $env:PSModulePath. A sensor body pasted into a deployment tool runs from a temporary
+    folder with no Modules folder beside it, so on those endpoints StorageHealth must be
+    installed on $env:PSModulePath. Also needs smartctl.exe (smartmontools) on the PATH,
+    administrator rights, and the Storage module (Get-Partition, Get-Disk). Runs on Windows
+    PowerShell 5.1 and PowerShell 7.
 #>
-$Drives = (Get-CimInstance -Namespace root\cimv2 -ClassName Win32_LogicalDisk | ? {$_.DriveType -eq 3} )
+[CmdletBinding()]
+param ()
 
-Foreach ($Drive in $Drives) {
-$smartctl = [string[]](smartctl -A $Drive.DeviceID)
-$attributes=@()
-foreach ($s in $smartctl) {
-    if ($s -match '^\s*(\d+)\s+(\w+)\s+(\w+)\s+(\d+)\s+(\d+)\s+([\d-]+)\s+([\w-]+)\s+(\w+)\s+([\w-]+)\s+(\d+)') {
-        $PSObj = new-object -Typename PSObject
-        Add-Member -in $PSObj -m NoteProperty -Name 'DriveLetter' -Value ($Drive.DeviceID)
-        Add-Member -in $PSObj -m NoteProperty -Name 'Manufacturer' -Value ((Get-Partition -DriveLetter $Drive.DeviceID.Substring(0,1) | Get-Disk).FriendlyName)
-        Add-Member -in $PSObj -m NoteProperty -Name 'SerialNumber' -Value ((Get-Partition -DriveLetter $Drive.DeviceID.Substring(0,1) | Get-Disk).SerialNumber)
-        Add-Member -in $PSObj -m NoteProperty -name 'ID' -value ([int]$matches[1])
-        Add-Member -in $PSObj -m NoteProperty -name 'Name' -value $matches[2]
-        #Add-Member -in $PSObj -m NoteProperty -name 'Flag' -value $matches[3]
-        Add-Member -in $PSObj -m NoteProperty -name 'Value' -value ([int]$matches[4])
-        #Add-Member -in $PSObj -m NoteProperty -name 'Worst' -value ([int]$matches[5])
-        #Add-Member -in $PSObj -m NoteProperty -name 'Threshold' -value ([int]$matches[6])
-        Add-Member -in $PSObj -m NoteProperty -name 'Type' -value $matches[7]
-        #Add-Member -in $PSObj -m NoteProperty -name 'Updated' -value $matches[8]
-        #Add-Member -in $PSObj -m NoteProperty -name 'WhenFailed' -value $matches[9]
-        #Add-Member -in $PSObj -m NoteProperty -name 'Raw' -value ([int64]$matches[10])
-        $attributes += $PSObj
-        }
+# No output means no drive reported SMART attributes, so a failed import must still print a line.
+try {
+    if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot '../../Modules/StorageHealth/StorageHealth.psd1'))) {
+        Import-Module (Join-Path $PSScriptRoot '../../Modules/StorageHealth/StorageHealth.psd1') -Force -ErrorAction Stop
     }
+    else {
+        Import-Module StorageHealth -Force -ErrorAction Stop
+    }
+} catch {
+    'StorageHealth module not found|Sensor error|{0}|||||' -f ($_.Exception.Message -replace '[\r\n|]+', ' ')
+    exit 1
 }
 
-
-ForEach ($attribute in $attributes) {
-    $DriveLetter = $attribute.DriveLetter
-    $Manufacturer = $attribute.Manufacturer
-    $SerialNumber = $attribute.SerialNumber
-    Switch ($attribute.id) {
-    5 { $ID5 = $attribute.Value}
-    187 { $ID187 = $attribute.Value}
-    188 { $ID188 = $attribute.Value}
-    197 { $ID197 = $attribute.Value}
-    198 { $ID198 = $attribute.Value}
-    }
-    [String]$retVal =  $DriveLetter + "|" + $Manufacturer + "|" + $SerialNumber + "|" + $ID5 + "|" + $ID187 + "|" + $ID188 + "|" + $ID197 + "|" + $ID198
+# One unreadable drive writes a non-terminating error; it must not hide the readable drives.
+$driveErrors = @()
+try {
+    $drives = @(Get-DriveHealth -Source Smartctl -ErrorAction SilentlyContinue -ErrorVariable driveErrors)
+} catch {
+    'Drive health could not be read|Sensor error|{0}|||||' -f ($_.Exception.Message -replace '[\r\n|]+', ' ')
+    exit 1
 }
-
-Write-Host $retVal
+foreach ($health in $drives) {
+    @(
+        $health.DriveLetter, $health.FriendlyName, $health.SerialNumber,
+        $health.ReallocatedSectorsCount, $health.ReportedUncorrectableErrors, $health.CommandTimeout,
+        $health.CurrentPendingSectorCount, $health.UncorrectableSectorCount
+    ) -join '|'
+}
+foreach ($driveError in $driveErrors) {
+    'Drive health could not be read|Sensor error|{0}|||||' -f ($driveError.Exception.Message -replace '[\r\n|]+', ' ')
+}
+if ($driveErrors.Count -gt 0) {
+    exit 1
+}
