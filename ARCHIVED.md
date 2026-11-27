@@ -192,3 +192,15 @@ These scripts were retired because they targeted an obsolete product. Last commi
 |---|---|
 | `Scripts/Security/Get-BitlockerCompliance.ps1` | Joined a legacy client-management inventory database, directory data and disk-encryption recovery IDs into spreadsheet-ready CSVs; it depended on a third-party disk-encryption product and its columns had been frozen since 2019 (obsolete product). |
 | `Tests/Unit/Get-BitlockerCompliance.Tests.ps1` | Unit tests that covered the retired compliance script. |
+
+## Retired scripts (#143, 2026-11)
+
+These scripts were retired because they are organization-specific deployment or removal
+packages, or because the product they target is obsolete, and they hard-code internal install
+or log paths. Last commit that has them: `0f8d15f407fe`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/System/Remove_All_Versions_of_Microstrategy-Package.ps1` | Silently uninstalled every version of an analytics platform's deployment package; org-specific, with hard-coded internal tooling log paths and broken multi-match logic. |
+| `Scripts/System/Remove_All_Versions_of_TM1_Add-in_for_Excel.ps1` | Uninstalled a planning add-in for spreadsheet software and its leftovers; org-specific, a one-vendor removal package for an internal deployment with hard-coded install paths. |
+| `Scripts/System/Remove_All_Versions_of_Zoom_Outlook_Plugin-Package.ps1` | Silently uninstalled every version of a conferencing product's mail-client plugin; the vendor retired the plugin in favour of an add-in, and the script hard-coded internal log paths. |
