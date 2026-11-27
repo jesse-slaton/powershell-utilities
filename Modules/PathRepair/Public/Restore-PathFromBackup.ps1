@@ -5,10 +5,15 @@ function Restore-PathFromBackup {
 
     .DESCRIPTION
         Reads the User-scope BADPATH variable (the backup of the original User PATH that
-        Repair-PathEntries writes before it changes anything), writes it back to the
-        User-scope PATH, then deletes the User-scope PATH_FIX_DATE variable if it is set.
-        BADPATH itself is left in place. Writes an error and changes nothing when BADPATH
-        is not set. Outputs nothing; -Verbose reports each step.
+        Repair-PathEntry writes before it changes anything), writes it back to the
+        User-scope PATH, then deletes the User-scope PATH_FIX_DATE variable if it is set,
+        and tells running programs about the change (WM_SETTINGCHANGE); a failed broadcast
+        is only a warning, since PATH is restored by then. BADPATH itself is left in place. Writes an error and changes nothing when BADPATH is not set. Outputs
+        nothing; -Verbose reports each step.
+
+        BADPATH is read from HKCU\Environment as written, without expanding %VAR%
+        references, and PATH is written with the registry value kind BADPATH has, so a
+        REG_EXPAND_SZ backup comes back as REG_EXPAND_SZ with its %USERPROFILE%-style text.
 
         Both variables are read from the User scope, not from the current process, so a
         backup written earlier in the same session is found.
@@ -27,7 +32,8 @@ function Restore-PathFromBackup {
 
     .NOTES
         Windows only: the User environment scope is stored in the registry. The new PATH
-        applies to processes started afterwards, not to the current session.
+        applies to processes started afterwards, not to the current session. The Machine
+        PATH is never read or changed.
 
         A BADPATH written by the old Scripts/System/Repair-PathEntries.ps1 holds the merged
         Machine and User PATH of that process, not the User PATH, so restoring it copies
@@ -37,23 +43,20 @@ function Restore-PathFromBackup {
         PATH_FIX_DATE without touching the marker, so a backup it wrote after a newer
         repair still warns. It does not back up the User PATH it overwrites, and every
         applying repair replaces BADPATH, so only one generation is kept.
-
-        Environment variables are read expanded and written as REG_SZ, on Windows
-        PowerShell 5.1 and PowerShell 7 alike, so %USERPROFILE%-style references in
-        BADPATH come back as fixed paths (the REG_EXPAND_SZ type is lost). Tracked in
-        issue #149. Part of the PathRepair module.
+        Part of the PathRepair module.
     #>
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param ()
 
-    $badPath = Read-EnvironmentVariable -Name 'BADPATH' -Target User
+    $backup = Read-UserEnvironmentValue -Name 'BADPATH'
+    $badPath = $backup.Value
     if ([string]::IsNullOrEmpty($badPath)) {
         Write-Error 'The BADPATH environment variable does not exist or is empty.'
         return
     }
 
-    $fixDate = Read-EnvironmentVariable -Name 'PATH_FIX_DATE' -Target User
-    if ((Read-EnvironmentVariable -Name 'BADPATH_SCOPE' -Target User) -ne "User|$fixDate") {
+    $fixDate = (Read-UserEnvironmentValue -Name 'PATH_FIX_DATE').Value
+    if ((Read-UserEnvironmentValue -Name 'BADPATH_SCOPE').Value -ne "User|$fixDate") {
         Write-Warning 'BADPATH has no BADPATH_SCOPE=User marker for the current PATH_FIX_DATE, so the old Repair-PathEntries.ps1 may have written it with the merged Machine and User PATH, or this backup was already restored. Check BADPATH before restoring it.'
     }
 
@@ -61,13 +64,14 @@ function Restore-PathFromBackup {
         return
     }
 
-    Write-EnvironmentVariable -Name 'PATH' -Value $badPath -Target User
+    Write-UserEnvironmentValue -Name 'PATH' -Value $badPath -Kind $backup.Kind
     Write-Verbose 'PATH has been successfully restored from BADPATH.'
 
     if ($fixDate) {
-        Write-EnvironmentVariable -Name 'PATH_FIX_DATE' -Value $null -Target User
+        Write-UserEnvironmentValue -Name 'PATH_FIX_DATE' -Value $null
         Write-Verbose 'PATH_FIX_DATE has been successfully deleted.'
     } else {
         Write-Verbose 'PATH_FIX_DATE does not exist or has already been deleted.'
     }
+    Send-EnvironmentChange
 }
