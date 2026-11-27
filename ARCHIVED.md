@@ -170,3 +170,16 @@ migrations, or targeted an obsolete product. Last commit that has them: `6944d13
 | `Scripts/Network/Get-ScopeDetails-Sensor.ps1` | Collected active DHCP scopes and option 1 values, but wrote nothing to the pipeline despite its sensor name and hard-coded an internal server exclusion (broken/incomplete). |
 | `Scripts/Network/Set-DhcpNetBiosOverTcpIpOption.ps1` | Set DHCP vendor option 1 on all servers to disable NetBIOS; a one-time fleet-wide migration with a hard-coded internal server exclusion. |
 | `Scripts/Network/Remove Bloatware RegKeys.ps1` | Deleted leftover class-registration keys for specific preinstalled-app package versions pinned to a 2017-era release that no longer exists (obsolete product). |
+
+## Retired scripts (#141, 2026-11)
+
+These scripts were retired because they were broken or incomplete, one-time migrations, or
+targeted an obsolete or organization-specific product. Last commit that has them: `2d5263d3e119`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/Office/Get-ProcessBitness-Sensor.ps1` | Defined a function to detect 32-bit and 64-bit processes, but depended on an undefined Test-Process helper and never ran as committed (broken/incomplete). |
+| `Scripts/Office/MigrateOffice.ps1` | Built a deployment config and installed Office as 64-bit; a one-time migration from the MSI build to the click-to-run build and from 32-bit to 64-bit, with a hard-coded organization Company value. |
+| `Scripts/Office/Set-OneBaseRetrievalButtonValue.ps1` | Edited a third-party document-management add-in's Office 2016 integration folder to disable one button (obsolete product, org-specific setting). |
+| `Scripts/Security/Get_EFSStatus.ps1` | Started an EFS scan at idle priority but never captured its result (broken/incomplete). |
+| `Scripts/Security/HylandCompliance-Package.ps1` | Checked components against pinned build numbers from one organization's 20.3 rollout (org-specific). |
