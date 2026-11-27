@@ -653,6 +653,7 @@ Describe 'Test-SSD' {
         $errs[0].Exception.Message | Should -Match 'Seek boom'
         $errs[0].CategoryInfo.Category | Should -Be 'ReadError'
         $errs[0].FullyQualifiedErrorId | Should -Match 'TestSSD.BothChecksFailed'
+        $errs[0].TargetObject | Should -Be 3
     }
 
     It 'writes no error when only the <Failing> check fails' -ForEach @(
