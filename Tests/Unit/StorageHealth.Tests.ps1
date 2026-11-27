@@ -608,3 +608,60 @@ Describe 'Get-DriveHealthStats2-Sensor.ps1 wrapper' {
         }
     }
 }
+
+Describe 'Test-SSD' {
+    It 'returns <Expected> when rotation rate is <Rotation> and seek penalty is <Seek>' -ForEach @(
+        @{ Rotation = $true; Seek = $true; Expected = $false }
+        @{ Rotation = $false; Seek = $true; Expected = $true }
+        @{ Rotation = $true; Seek = $false; Expected = $true }
+        @{ Rotation = $false; Seek = $false; Expected = $true }
+    ) {
+        $r = $Rotation
+        $s = $Seek
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasNominalMediaRotationRate' } { $r }
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasSeekPenalty' } { $s }
+        $result = Test-SSD -PhysicalDiskId 1 -Confirm:$false
+        $result | Should -BeOfType [bool]
+        $result | Should -Be $Expected
+        Should -Invoke Invoke-SsdNativeCheck -ModuleName StorageHealth -Times 2 -Exactly -ParameterFilter { $DriveString -eq '\\.\PhysicalDrive1' }
+    }
+
+    It 'counts a failed check as a spinning disk and lets the other check decide' {
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasNominalMediaRotationRate' } { throw 'Access is denied' }
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasSeekPenalty' } { $false }
+        Test-SSD -PhysicalDiskId 0 -Confirm:$false | Should -BeTrue
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasSeekPenalty' } { throw 'Access is denied' }
+        Test-SSD -PhysicalDiskId 0 -Confirm:$false | Should -BeFalse
+    }
+
+    It 'returns one result per disk number from the pipeline' {
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth { $DriveString -ne '\\.\PhysicalDrive2' }
+        $result = @(0, 2 | Test-SSD -Confirm:$false)
+        $result | Should -Be @($false, $true)
+    }
+
+    It 'calls nothing and reports a spinning disk for each disk under -WhatIf' {
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth { $false }
+        @(0, 1 | Test-SSD -WhatIf) | Should -Be @($false, $false)
+        Should -Invoke Invoke-SsdNativeCheck -ModuleName StorageHealth -Times 0 -Exactly
+    }
+}
+
+Describe 'Invoke-SsdNativeCheck (private)' {
+    It 'compiles the detection class with both public checks' {
+        $type = InModuleScope StorageHealth {
+            if (-not ('Util.DetectSSD' -as [type])) { Add-Type -TypeDefinition (Get-SsdNativeSource) }
+            [type]'Util.DetectSSD'
+        }
+        foreach ($name in 'HasSeekPenalty', 'HasNominalMediaRotationRate') {
+            $method = $type.GetMethod($name)
+            $method | Should -Not -BeNullOrEmpty -Because "$name is called by Invoke-SsdNativeCheck"
+            $method.IsStatic | Should -BeTrue
+            $method.ReturnType | Should -Be ([bool])
+        }
+    }
+
+    It 'rejects an unknown check name' {
+        { InModuleScope StorageHealth { Invoke-SsdNativeCheck -Check 'Bogus' -DriveString '\\.\PhysicalDrive0' } } | Should -Throw
+    }
+}
