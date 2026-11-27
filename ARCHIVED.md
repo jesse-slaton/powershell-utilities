@@ -63,3 +63,12 @@ One-off workarounds for old Google Chrome builds, retired instead of being folde
 |---|---|
 | `Scripts/General/Create-ChromeTestShortcut.ps1` | Created a "Test Chrome" Desktop shortcut that starts the 32-bit (x86) Chrome install with the audio service sandbox disabled. |
 | `Scripts/General/Fix-Chrome77JumpList.ps1` | Copied Chrome's jump list file so a pinned Chrome taskbar icon shows its jump list again after the Chrome 77 change. |
+
+## Retired with the StorageHealth module (#47, 2026-11)
+
+This script was not ported to `Modules/StorageHealth`: it compiled the SSD checks but never
+ran them, and `Test-SSD` now runs the same checks. Last commit that has it: `278a9a725d8e`.
+
+| Path | What it did | Use instead |
+|---|---|---|
+| `Scripts/System/DetectSSD.ps1` | Compiled a C# class with a seek-penalty and a rotation-rate SSD check, but never called either. | `Test-SSD` in `Modules/StorageHealth`, which runs both checks (it replaces `Scripts/System/TestSSD.ps1`). |
