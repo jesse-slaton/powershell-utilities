@@ -72,3 +72,18 @@ ran them, and `Test-SSD` now runs the same checks. Last commit that has it: `278
 | Path | What it did | Use instead |
 |---|---|---|
 | `Scripts/System/DetectSSD.ps1` | Compiled a C# class with a seek-penalty and a rotation-rate SSD check, but never called either. | `Test-SSD` in `Modules/StorageHealth`, which runs both checks (it replaces `Scripts/System/TestSSD.ps1`). |
+
+## Retired scripts (#134, 2026-11)
+
+These scripts were retired because the product or workaround they served is gone, or because
+they cannot run as written. Last commit that has them: `7d81d42125ed`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/ActiveDirectory/GetLastUserDetails-Package.ps1` | Tried to report the most recent logon and elapsed time per user; the output line could not be produced and the per-user logic never worked. |
+| `Scripts/ActiveDirectory/Test-InteractiveLogonUser.ps1` | Defined a function that inferred an interactive logon from the explorer process; it called an undefined Test-Process command, so it could not run anywhere. |
+| `Scripts/Application/Remove-IntelDCHDriver.ps1` | One-time migration that removed legacy Intel display devices and their driver packages for the DCH driver move; depended on a devcon.exe that is not shipped. |
+| `Scripts/Application/StartSMC.ps1` | Started the Symantec Endpoint Protection client through smc.exe (obsolete product). |
+| `Scripts/Application/stopSMC.ps1` | Disabled and stopped the Symantec Endpoint Protection client through smc.exe (obsolete product; companion of StartSMC.ps1). |
+| `Scripts/Development/Test-AAfDConfigFile.ps1` | Compared a contact-center agent config file to a hard-coded expected hash for one internal deployment. |
+| `Scripts/Utilities/RecieverCleanupUtilityWrapper.ps1` | Unfinished stub for a Citrix Receiver clean-up (obsolete product, replaced by Workspace app). |
