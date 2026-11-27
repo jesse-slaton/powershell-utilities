@@ -9,7 +9,8 @@
 # when the PR has no milestone yet: a milestone set by hand is never replaced.
 # When the referenced issues sit in different milestones, one comment on the PR
 # lists them. Later edits update it in place, never duplicate it, and delete it
-# once the references no longer conflict.
+# once the references no longer conflict. If a referenced issue cannot be read
+# (other than not existing), the note is left as it is for that run.
 #
 # This assigns only. It is not a required check and never blocks a merge.
 #
@@ -63,17 +64,30 @@ jobs:
             const body = context.payload.pull_request.body || '';
             const ref = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?|part\s+of)\s+#(\d+)\b/gi;
             const issues = [...new Set([...body.matchAll(ref)].map((m) => parseInt(m[1], 10)))];
+            // Every reference costs one API call and the body is untrusted, so at
+            // most MAX_REFS distinct references are looked up.
+            const MAX_REFS = 25;
+            const truncated = issues.length > MAX_REFS;
+            if (truncated) {
+              core.warning(`The PR body references ${issues.length} issues; only the first ${MAX_REFS} are used.`);
+              issues.length = MAX_REFS;
+            }
             core.info(issues.length > 0
               ? `Referenced: ${issues.map((n) => `#${n}`).join(', ')}`
               : 'The PR body references no issues.');
 
             // Milestones in the order their first issue is referenced.
+            // A referenced number that does not exist (404) has no milestone. Any
+            // other read failure leaves the set of milestones unknown, so the
+            // conflict note below is left alone rather than judged on part of it.
             const milestones = new Map();
+            let incomplete = false; // set when a referenced issue cannot be read
             for (const issue_number of issues) {
               let issue;
               try {
                 ({ data: issue } = await github.rest.issues.get({ owner, repo, issue_number }));
               } catch (err) {
+                if (err.status !== 404) incomplete = true;
                 core.warning(`Could not read #${issue_number}: ${err.message}`);
                 continue;
               }
@@ -97,10 +111,45 @@ jobs:
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number: prNumber, per_page: 100,
             });
-            const existing = comments.find((c) => c.body && c.body.includes(sentinel)
+            // Every matching note, not only the first: an older copy of this
+            // workflow read only the first page of comments and could post a
+            // second note, so extras are removed here.
+            const notes = comments.filter((c) => c.body && c.body.includes(sentinel)
               && c.user && c.user.type === 'Bot' && c.user.login === 'github-actions[bot]');
+            const [existing, ...extras] = notes;
+            // Another run on the same PR may already have deleted a note: a 404
+            // here means it is gone, which is the goal.
+            const deleteNote = async (c) => {
+              try {
+                await github.rest.issues.deleteComment({ owner, repo, comment_id: c.id });
+              } catch (err) {
+                if (err.status !== 404) throw err;
+              }
+            };
 
-            if (milestones.size > 1) {
+            if (incomplete) {
+              core.warning('A referenced issue could not be read; the conflict note is left as it is.');
+            } else if (truncated) {
+              // More references than are looked up: a conflict cannot be judged, so
+              // the note says so, replacing any conflict warning that may be stale.
+              const capBody = [
+                sentinel,
+                `This PR references more than ${MAX_REFS} issues, so its milestone is not set automatically and milestone conflicts are not checked. Set the milestone by hand.`,
+              ].join('\n');
+              const [first, ...rest] = notes;
+              if (first) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner, repo: context.repo.repo, comment_id: first.id, body: capBody,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo, issue_number: prNumber, body: capBody,
+                });
+              }
+              for (const c of rest) {
+                await deleteNote(c);
+              }
+            } else if (milestones.size > 1) {
               const list = entries
                 .map((m) => `- **${m.title}** (from ${m.issues.map((n) => `#${n}`).join(', ')})`)
                 .join('\n');
@@ -117,10 +166,22 @@ jobs:
               } else {
                 await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: note });
               }
+              for (const c of extras) {
+                await deleteNote(c);
+              }
               core.warning(`Referenced issues are in ${milestones.size} milestones; using "${target.title}".`);
-            } else if (existing) {
-              await github.rest.issues.deleteComment({ owner, repo, comment_id: existing.id });
+            } else if (notes.length > 0) {
+              for (const c of notes) {
+                await deleteNote(c);
+              }
               core.info('Removed the conflict note: the references no longer span milestones.');
+            }
+
+            // With part of the references unread, the first one's milestone is
+            // unknown, so assigning from the rest could pick the wrong milestone.
+            if (incomplete || truncated) {
+              core.warning('Not assigning a milestone: not every referenced issue was read.');
+              return;
             }
 
             if (!target) {
