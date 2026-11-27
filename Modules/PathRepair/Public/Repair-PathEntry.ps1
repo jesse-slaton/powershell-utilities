@@ -21,13 +21,14 @@ function Repair-PathEntry {
         so a REG_EXPAND_SZ PATH keeps its kind and its %USERPROFILE%-style entries. In a
         REG_EXPAND_SZ PATH only the directory checks expand them, for the check alone, and
         an entry whose variable this process cannot expand is never removed as
-        non-existent. Duplicates compares entries as written, so %USERPROFILE%\bin and its
+        non-existent. An entry whose variable expands to several folders (a value holding
+        ';') is removed as non-existent only when none of them exists. Duplicates compares entries as written, so %USERPROFILE%\bin and its
         expanded form are both kept.
 
         Windows does not expand %VAR% in a REG_SZ PATH, so there such an entry is checked
         as written. It is never removed as non-existent (the expanded folder is what was
-        meant): it is kept, and a warning names it and suggests making PATH REG_EXPAND_SZ.
-        The value kind is never changed.
+        meant): it is kept, and a warning names it and suggests making PATH REG_EXPAND_SZ,
+        even when a folder with that literal name exists. The value kind is never changed.
 
         After a write, running programs are told about the change (a WM_SETTINGCHANGE
         "Environment" broadcast). The write is already complete then, so a failed
@@ -56,8 +57,9 @@ function Repair-PathEntry {
         Remote computer to repair through PowerShell remoting (Invoke-Command). Omit it to
         repair this computer. The module does not need to be installed there. A remote
         session cannot reach network shares or mapped drives (the second hop), so their
-        entries look missing: UNC (\\server\share) entries are never removed as
-        non-existent remotely, but mapped-drive entries are. Run with -WhatIf first.
+        entries look missing: UNC (\\server\share) entries, written out or reached through
+        a %VAR% that expands to one, are never removed as non-existent remotely, but
+        mapped-drive entries are. Run with -WhatIf first.
 
     .PARAMETER Credential
         Credential for the remote connection. Used only with ComputerName.

@@ -158,6 +158,32 @@ Describe 'Get-MalformedPathEntry, with real directory checks' {
     }
 }
 
+Describe 'Repair-PathEntry, with real directory checks' {
+    It 'warns about a kept %VAR% entry of a REG_SZ PATH even when a folder with that literal name exists' {
+        $varName = 'PATHREPAIR_TEST_{0}' -f [guid]::NewGuid().ToString('N')
+        # Absolute, as in the Get-MalformedPathEntry test above: TestDrive\%VAR%\x exists.
+        $script:entry = [System.IO.Path]::Combine($TestDrive, "%$varName%", 'x')
+        New-Item -Path $script:entry -ItemType Directory -Force | Out-Null
+        [System.Environment]::SetEnvironmentVariable($varName, (Join-Path $TestDrive 'expanded'), 'Process')
+        try {
+            Mock Read-UserEnvironmentValue -ModuleName PathRepair -ParameterFilter { $Name -eq 'PATH' } {
+                [pscustomobject]@{ Value = "$TestDrive;$script:entry"; Kind = 'String' }
+            }
+            Mock Write-UserEnvironmentValue -ModuleName PathRepair
+            Mock Send-EnvironmentChange -ModuleName PathRepair
+            InModuleScope PathRepair -Parameters @{ Entry = $script:entry } { param($Entry) Test-PathDirectory -Path $Entry -Literal | Should -BeTrue }
+            $result = Repair-PathEntry -FixTypes NonExistentPaths -WhatIf -WarningVariable warn -WarningAction SilentlyContinue
+            $result.NewPath | Should -BeExactly "$TestDrive;$script:entry"
+            @($warn).Count | Should -Be 1
+            "$warn" | Should -Match ([regex]::Escape("'$script:entry'"))
+            "$warn" | Should -Match 'REG_SZ.*REG_EXPAND_SZ'
+            "$warn" | Should -Not -Match 'does not exist'
+        } finally {
+            [System.Environment]::SetEnvironmentVariable($varName, $null, 'Process')
+        }
+    }
+}
+
 Describe 'Restore-PathFromBackup' {
     BeforeEach {
         Mock Write-UserEnvironmentValue -ModuleName PathRepair
@@ -788,6 +814,56 @@ Describe 'Invoke-PathRepairCore' {
             Mock Test-PathDirectory { $Path -eq 'C:\Good' }
             (Invoke-PathRepairCore -FixTypes NonExistentPaths -SkipUnc $true).NewPath | Should -Be 'C:\Good;\\server\share;"\\server\tools"'
             (Invoke-PathRepairCore -FixTypes NonExistentPaths).NewPath | Should -Be 'C:\Good'
+        }
+    }
+
+    It 'with SkipUnc keeps a REG_EXPAND_SZ %VAR% entry that expands to a UNC share, and removes it without SkipUnc' {
+        $varName = 'PSU_UNC_TEST_{0}' -f [guid]::NewGuid().ToString('N')
+        [System.Environment]::SetEnvironmentVariable($varName, '\\fileserver\tools', 'Process')
+        try {
+            InModuleScope PathRepair -Parameters @{ VarName = $varName } {
+                param($VarName)
+                $script:testPath = "C:\Good;%$VarName%\bin;\\server\share;C:\Missing"
+                Mock Read-UserEnvironmentValue { [pscustomobject]@{ Value = $script:testPath; Kind = 'ExpandString' } }
+                Mock Test-PathDirectory { $Path -eq 'C:\Good' }
+                (Invoke-PathRepairCore -FixTypes NonExistentPaths -SkipUnc $true).NewPath |
+                    Should -BeExactly "C:\Good;%$VarName%\bin;\\server\share"
+                (Invoke-PathRepairCore -FixTypes NonExistentPaths).NewPath | Should -BeExactly 'C:\Good'
+            }
+        } finally {
+            [System.Environment]::SetEnvironmentVariable($varName, $null, 'Process')
+        }
+    }
+
+    It 'removes a %VAR% entry that expands to <Value> only when no part is usable (existing: <Existing>, SkipUnc: <SkipUnc>)' -ForEach @(
+        @{ Value = 'C:\Tools;C:\SDK'; Existing = @('C:\Tools', 'C:\SDK'); SkipUnc = $false; Kept = $true }
+        @{ Value = 'C:\Tools;C:\SDK'; Existing = @('C:\SDK'); SkipUnc = $false; Kept = $true }
+        @{ Value = 'C:\Tools;C:\SDK'; Existing = @(); SkipUnc = $false; Kept = $false }
+        @{ Value = 'C:\Tools;;"C:\SDK"'; Existing = @('C:\SDK'); SkipUnc = $false; Kept = $true }
+        @{ Value = 'C:\Tools;\\server\sdk'; Existing = @(); SkipUnc = $true; Kept = $true }
+        @{ Value = 'C:\Tools;\\server\sdk'; Existing = @(); SkipUnc = $false; Kept = $false }
+    ) {
+        $varName = 'PSU_MULTI_TEST_{0}' -f [guid]::NewGuid().ToString('N')
+        [System.Environment]::SetEnvironmentVariable($varName, $Value, 'Process')
+        try {
+            InModuleScope PathRepair -Parameters @{ VarName = $varName; Existing = $Existing; SkipUnc = $SkipUnc; Kept = $Kept } {
+                param($VarName, $Existing, $SkipUnc, $Kept)
+                $script:testPath = "C:\Good;%$VarName%"
+                $script:testExisting = @('C:\Good') + $Existing
+                Mock Read-UserEnvironmentValue { [pscustomobject]@{ Value = $script:testPath; Kind = 'ExpandString' } }
+                Mock Test-PathDirectory { $Path.Trim('"') -in $script:testExisting }
+                $result = Invoke-PathRepairCore -FixTypes NonExistentPaths -SkipUnc $SkipUnc
+                if ($Kept) {
+                    $result.NewPath | Should -BeExactly "C:\Good;%$VarName%"
+                    @($result.Changes).Count | Should -Be 0
+                } else {
+                    $result.NewPath | Should -BeExactly 'C:\Good'
+                    @($result.Changes)[0].Entry | Should -BeExactly "%$VarName%"
+                    @($result.Changes)[0].Reason | Should -Be 'Non-existent directory'
+                }
+            }
+        } finally {
+            [System.Environment]::SetEnvironmentVariable($varName, $null, 'Process')
         }
     }
 

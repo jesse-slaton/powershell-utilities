@@ -14,13 +14,15 @@ function Invoke-PathRepairCore {
         remove for each selected issue type. For a REG_EXPAND_SZ PATH, directory checks
         expand %VAR% for the check only; duplicates are compared by their text as written,
         so %USERPROFILE%\bin and its expansion are two different entries. An entry whose
-        %VAR% reference this process cannot expand is never removed as non-existent.
+        %VAR% reference this process cannot expand is never removed as non-existent, and
+        one whose %VAR% expands to several entries (a value holding ';') is removed only
+        when none of them is an existing directory.
 
         Windows does not expand %VAR% in a REG_SZ PATH, so there an entry holding a %VAR%
         reference is checked as written. It is never removed as non-existent (the user
-        means the expanded folder): it is kept and, when it does not exist as written, a
-        warning names it and suggests making PATH REG_EXPAND_SZ. The value kind is never
-        changed. Throws when the User PATH is empty. Writes nothing: Write-RepairedPath
+        means the expanded folder): it is kept and a warning names it and suggests making
+        PATH REG_EXPAND_SZ, even when a folder with that literal name exists. The value kind
+        is never changed. Throws when the User PATH is empty. Writes nothing: Write-RepairedPath
         applies the result.
 
         Outputs one object with ComputerName, OriginalPath, OriginalKind (the registry
@@ -35,8 +37,10 @@ function Invoke-PathRepairCore {
         BlankEntries, NonExistentPaths.
 
     .PARAMETER SkipUnc
-        $true to keep UNC (\\server\share) entries that NonExistentPaths would remove. A
-        remote session cannot reach network shares, so they always look missing there.
+        $true to keep UNC (\\server\share) entries that NonExistentPaths would remove,
+        whether UNC as written or once their %VAR% is expanded (for a %VAR% that expands to
+        several entries, any UNC one keeps the entry). A remote session cannot reach
+        network shares, so they always look missing there.
 
     .EXAMPLE
         Invoke-PathRepairCore -FixTypes Duplicates
@@ -111,9 +115,28 @@ function Invoke-PathRepairCore {
         $unexpanded = $literalKind -and $suggested -match '%[^%;]+%'
         # A drive root, with or without a balanced pair of quotes, is never removed, nor is an
         # entry whose %VAR% this process cannot expand (the variable may be newer than it).
-        if (-not $remove -and 'NonExistentPaths' -in $FixTypes -and -not $unexpanded -and $suggested -notmatch '^("?)[A-Z]:\\\1$' -and
-            [System.Environment]::ExpandEnvironmentVariables($suggested) -notmatch '%[^%;]+%' -and
-            -not ($SkipUnc -and $suggested.Trim('"').StartsWith('\\')) -and -not (Test-PathDirectory -Path $suggested)) {
+        $missing = $false
+        if (-not $remove -and 'NonExistentPaths' -in $FixTypes -and -not $unexpanded -and $suggested -notmatch '^("?)[A-Z]:\\\1$') {
+            $expanded = [System.Environment]::ExpandEnvironmentVariables($suggested)
+            if ($expanded -notmatch '%[^%;]+%') {
+                if ($expanded.Contains(';') -and -not $suggested.Contains(';')) {
+                    # A %VAR% that expands to several entries: removed only when none of them
+                    # exists. With SkipUnc, a UNC part keeps the entry.
+                    $missing = $true
+                    foreach ($part in @($expanded.Trim('"') -split ';' | Where-Object { $_.Trim() })) {
+                        if (($SkipUnc -and $part.Trim('"').StartsWith('\\')) -or (Test-PathDirectory -Path $part -Literal)) {
+                            $missing = $false
+                            break
+                        }
+                    }
+                } else {
+                    # SkipUnc keeps an entry that is UNC as written or once its %VAR% is expanded.
+                    $isUnc = $suggested.Trim('"').StartsWith('\\') -or $expanded.Trim('"').StartsWith('\\')
+                    $missing = -not ($SkipUnc -and $isUnc) -and -not (Test-PathDirectory -Path $suggested)
+                }
+            }
+        }
+        if ($missing) {
             $remove = $true
             $reason = 'Non-existent directory'
             if ($suggested -match '^"(?=[^"]*[^";\s])[^"]*;[^"]*"$') {
@@ -161,9 +184,9 @@ function Invoke-PathRepairCore {
             $changes.Add([pscustomobject]@{ Index = $index; Entry = $entry; NewEntry = $suggested; Reason = $reason; DuplicateOf = $null
                 DependsOn = $dependsOn; FallbackEntry = $fallbackEntry })
         }
-        if ($unexpanded -and -not (Test-PathDirectory -Path $suggested -Literal)) {
+        if ($unexpanded) {
             Write-Warning ("User PATH entry '$suggested' kept: the User PATH is REG_SZ, so Windows does not expand " +
-                'its %VAR% references and this folder does not exist as written. Make PATH REG_EXPAND_SZ to have it expanded.')
+                'its %VAR% references. Make PATH REG_EXPAND_SZ to have it expanded.')
         }
         $seenPaths[$suggested] = $index
         if ($suggested -ceq $entry) {
