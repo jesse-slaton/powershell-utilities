@@ -183,3 +183,12 @@ targeted an obsolete or organization-specific product. Last commit that has them
 | `Scripts/Office/Set-OneBaseRetrievalButtonValue.ps1` | Edited a third-party document-management add-in's Office 2016 integration folder to disable one button (obsolete product, org-specific setting). |
 | `Scripts/Security/Get_EFSStatus.ps1` | Started an EFS scan at idle priority but never captured its result (broken/incomplete). |
 | `Scripts/Security/HylandCompliance-Package.ps1` | Checked components against pinned build numbers from one organization's 20.3 rollout (org-specific). |
+
+## Retired scripts (#142, 2026-11)
+
+These scripts were retired because they targeted an obsolete product. Last commit that has them: `c29f6bb7ba2a`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/Security/Get-BitlockerCompliance.ps1` | Joined a legacy client-management inventory database, directory data and disk-encryption recovery IDs into spreadsheet-ready CSVs; it depended on a third-party disk-encryption product and its columns had been frozen since 2019 (obsolete product). |
+| `Tests/Unit/Get-BitlockerCompliance.Tests.ps1` | Unit tests that covered the retired compliance script. |
