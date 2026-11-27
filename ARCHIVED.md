@@ -99,6 +99,6 @@ has them: `62aa6bae2a98`.
 | `Scripts/FileSystem/FindPSTFiles-Package.ps1` | Tried to list .pst files on local drives as JSON; the list was wrong (one file per drive, empty path field). |
 | `Scripts/Utilities/FindPSTSensor.ps1` | Printed the PST inventory JSON as pipe-delimited lines; its only input came from FindPSTFiles-Package.ps1, so it read a file nothing produces. |
 | `Scripts/FileSystem/Get-8021x_Profiles.ps1` | Parsed netsh lan profiles and printed the first profile's 802.1X settings; a near-duplicate of Get-WiredLANProfile.ps1, which uses the same parser and also reports and starts the dot3svc service. |
-| `Scripts/FileSystem/getVPNProfileReady-Sensor.ps1` | Sensor that reported ready when IP Helper was automatic and running and the AnyConnect profile was set; the profile half of the check was a no-op. |
-| `Scripts/FileSystem/Set-AnyConnectLocalProxy.ps1` | Set AllowLocalProxyConnections in the Cisco AnyConnect Secure Mobility Client 4.x profile XMLs (obsolete product; the folder was renamed in Cisco Secure Client 5.x). |
+| `Scripts/FileSystem/getVPNProfileReady-Sensor.ps1` | Sensor that reported ready when the IP Helper service was automatic and running and a VPN client profile flag was set; the profile half of the check was a no-op. |
+| `Scripts/FileSystem/Set-AnyConnectLocalProxy.ps1` | Set AllowLocalProxyConnections in the profile XMLs of a 4.x VPN client (obsolete product; the profile folder moved in the 5.x release, so the path no longer exists). |
 | `Scripts/FileSystem/Uninstall OneDrive-Package.ps1` | Uninstalled OneDrive from the Windows 10 inbox installer locations and removed its folders (obsolete product; the explorer stop step never worked). |
