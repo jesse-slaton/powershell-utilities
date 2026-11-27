@@ -43,7 +43,10 @@ function Restore-ChromeProfile {
 
     .NOTES
         Run as the user whose profile is restored, with Chrome closed. No admin rights
-        needed. Part of the ChromeProfile module.
+        needed. Hidden files and folders and empty folders in the backup are restored (hidden ones
+        come back as ordinary, non-hidden items), and folder names with '[' or ']' are used
+        literally. A -Path or -ProfilePath on a provider other than the file system (Variable:\,
+        HKCU:\) is an error and writes nothing. Part of the ChromeProfile module.
     #>
     [CmdletBinding()]
     [OutputType([System.IO.DirectoryInfo])]
@@ -57,7 +60,14 @@ function Restore-ChromeProfile {
     if (-not $ProfilePath) { $ProfilePath = Get-ChromeDefaultProfilePath }
     # Resolve to a literal file-system path: '[' and ']' in a profile name (for example
     # 'Profile [1]') must never be read as a wildcard pattern that matches another profile.
-    $ProfilePath = $PSCmdlet.GetUnresolvedProviderPathFromPSPath($ProfilePath)
+    try {
+        $Path = Resolve-ChromeFileSystemPath -Path $Path -Cmdlet $PSCmdlet
+        $ProfilePath = Resolve-ChromeFileSystemPath -Path $ProfilePath -Cmdlet $PSCmdlet
+    }
+    catch {
+        Write-Error -Message "Error restoring Chrome profile: $($_.Exception.Message)" -Category InvalidArgument
+        return
+    }
     # Drop trailing separators ('...\Default\'), or the staging folder below would be created
     # inside the profile folder instead of next to it. A bare root such as C:\ keeps its separator.
     $trimmed = $ProfilePath.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
@@ -82,9 +92,9 @@ function Restore-ChromeProfile {
         $legacy = Test-ChromeLegacyBackupZip -Path (Resolve-Path -LiteralPath $zipFile).ProviderPath
         if (-not $legacy) {
             Write-Verbose "Restoring Chrome profile $ProfilePath from $zipFile"
-            # Expand-Archive has no literal -DestinationPath and resolves it as a wildcard pattern,
-            # so 'Profile [1]' could extract into an existing 'Profile 1'. ZipFile takes it as is.
-            [System.IO.Compression.ZipFile]::ExtractToDirectory((Resolve-Path -LiteralPath $zipFile).ProviderPath, $stagingPath)
+            # Literal paths, hidden and empty entries kept, entries outside the folder refused.
+            # The staging folder is new, so the .NET Framework no-overwrite limit never applies.
+            Expand-ChromeBackupZip -ZipPath (Resolve-Path -LiteralPath $zipFile).ProviderPath -DestinationPath $stagingPath
             [System.IO.Directory]::Move($stagingPath, $ProfilePath)
         }
     }
