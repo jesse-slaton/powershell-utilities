@@ -9,12 +9,25 @@ function Invoke-PathRepairCore {
         Works out the repaired User PATH of this computer, changing nothing.
 
     .DESCRIPTION
-        Reads the User-scope PATH, splits it with Split-PathValue, and works out which
-        entries to fix or remove for each selected issue type. Throws when the User PATH is
-        empty. Writes nothing: Write-RepairedPath applies the result.
+        Reads the raw User-scope PATH (Read-UserEnvironmentValue, so %VAR% references stay
+        as written), splits it with Split-PathValue, and works out which entries to fix or
+        remove for each selected issue type. For a REG_EXPAND_SZ PATH, directory checks
+        expand %VAR% for the check only; duplicates are compared by their text as written,
+        so %USERPROFILE%\bin and its expansion are two different entries. An entry whose
+        %VAR% reference this process cannot expand is never removed as non-existent, and
+        one whose %VAR% expands to several entries (a value holding ';') is removed only
+        when none of them is an existing directory.
 
-        Outputs one object with ComputerName, OriginalPath, Entries (the split entries),
-        NewPath (every change applied), Changes (one object per changed entry: Index into
+        Windows does not expand %VAR% in a REG_SZ PATH, so there an entry holding a %VAR%
+        reference is checked as written. It is never removed as non-existent (the user
+        means the expanded folder): it is kept and a warning names it and suggests making
+        PATH REG_EXPAND_SZ, even when a folder with that literal name exists. The value kind
+        is never changed. Throws when the User PATH is empty. Writes nothing: Write-RepairedPath
+        applies the result.
+
+        Outputs one object with ComputerName, OriginalPath, OriginalKind (the registry
+        value kind of PATH, String or ExpandString, that the checks above assumed),
+        Entries (the split entries), NewPath (every change applied), Changes (one object per changed entry: Index into
         Entries, Entry, NewEntry, which is $null for a removal, Reason, and DuplicateOf,
         the Index of the kept entry a Duplicate removal copies, else $null) and Applied,
         which is always $false. Private to PathRepair.
@@ -24,8 +37,10 @@ function Invoke-PathRepairCore {
         BlankEntries, NonExistentPaths.
 
     .PARAMETER SkipUnc
-        $true to keep UNC (\\server\share) entries that NonExistentPaths would remove. A
-        remote session cannot reach network shares, so they always look missing there.
+        $true to keep UNC (\\server\share) entries that NonExistentPaths would remove,
+        whether UNC as written or once their %VAR% is expanded (for a %VAR% that expands to
+        several entries, any UNC one keeps the entry). A remote session cannot reach
+        network shares, so they always look missing there.
 
     .EXAMPLE
         Invoke-PathRepairCore -FixTypes Duplicates
@@ -43,10 +58,13 @@ function Invoke-PathRepairCore {
         [bool]$SkipUnc = $false
     )
 
-    $pathRaw = Read-EnvironmentVariable -Name 'PATH' -Target User
+    $pathValue = Read-UserEnvironmentValue -Name 'PATH'
+    $pathRaw = $pathValue.Value
     if ([string]::IsNullOrEmpty($pathRaw)) {
         throw 'The User PATH environment variable is empty or not set.'
     }
+    # Windows expands %VAR% only in a REG_EXPAND_SZ value, so a REG_SZ entry means its text.
+    $literalKind = $pathValue.Kind -eq 'String'
 
     # Not trimmed: a leading or trailing empty entry is a blank entry like any other, so it is
     # removed only through BlankEntries and ShouldProcess, and kept when BlankEntries is off.
@@ -93,9 +111,32 @@ function Invoke-PathRepairCore {
             $reason = 'Duplicate entry'
             $duplicateOf = $seenPaths[$suggested]
         }
-        # A drive root, with or without a balanced pair of quotes, is never removed.
-        if (-not $remove -and 'NonExistentPaths' -in $FixTypes -and $suggested -notmatch '^("?)[A-Z]:\\\1$' -and
-            -not ($SkipUnc -and $suggested.Trim('"').StartsWith('\\')) -and -not (Test-PathDirectory -Path $suggested)) {
+        # In a REG_SZ PATH Windows never expands this entry's %VAR%, so it is kept and reported.
+        $unexpanded = $literalKind -and $suggested -match '%[^%;]+%'
+        # A drive root, with or without a balanced pair of quotes, is never removed, nor is an
+        # entry whose %VAR% this process cannot expand (the variable may be newer than it).
+        $missing = $false
+        if (-not $remove -and 'NonExistentPaths' -in $FixTypes -and -not $unexpanded -and $suggested -notmatch '^("?)[A-Z]:\\\1$') {
+            $expanded = [System.Environment]::ExpandEnvironmentVariables($suggested)
+            if ($expanded -notmatch '%[^%;]+%') {
+                if ($expanded.Contains(';') -and -not $suggested.Contains(';')) {
+                    # A %VAR% that expands to several entries: removed only when none of them
+                    # exists. With SkipUnc, a UNC part keeps the entry.
+                    $missing = $true
+                    foreach ($part in @($expanded.Trim('"') -split ';' | Where-Object { $_.Trim() })) {
+                        if (($SkipUnc -and $part.Trim('"').StartsWith('\\')) -or (Test-PathDirectory -Path $part -Literal)) {
+                            $missing = $false
+                            break
+                        }
+                    }
+                } else {
+                    # SkipUnc keeps an entry that is UNC as written or once its %VAR% is expanded.
+                    $isUnc = $suggested.Trim('"').StartsWith('\\') -or $expanded.Trim('"').StartsWith('\\')
+                    $missing = -not ($SkipUnc -and $isUnc) -and -not (Test-PathDirectory -Path $suggested)
+                }
+            }
+        }
+        if ($missing) {
             $remove = $true
             $reason = 'Non-existent directory'
             if ($suggested -match '^"(?=[^"]*[^";\s])[^"]*;[^"]*"$') {
@@ -143,6 +184,10 @@ function Invoke-PathRepairCore {
             $changes.Add([pscustomobject]@{ Index = $index; Entry = $entry; NewEntry = $suggested; Reason = $reason; DuplicateOf = $null
                 DependsOn = $dependsOn; FallbackEntry = $fallbackEntry })
         }
+        if ($unexpanded) {
+            Write-Warning ("User PATH entry '$suggested' kept: the User PATH is REG_SZ, so Windows does not expand " +
+                'its %VAR% references. Make PATH REG_EXPAND_SZ to have it expanded.')
+        }
         $seenPaths[$suggested] = $index
         if ($suggested -ceq $entry) {
             $stablePaths[$suggested] = $true
@@ -160,6 +205,7 @@ function Invoke-PathRepairCore {
     [pscustomobject]@{
         ComputerName = [System.Environment]::MachineName
         OriginalPath = $pathRaw
+        OriginalKind = $pathValue.Kind
         Entries      = $entries
         NewPath      = $fixedPath.ToArray() -join ';'
         Changes      = $changes.ToArray()
@@ -173,50 +219,68 @@ function Write-RepairedPath {
         Writes a previewed PATH repair, provided the User PATH has not changed since.
 
     .DESCRIPTION
-        Re-reads the User-scope PATH and throws, writing nothing, unless it still equals
-        OriginalPath exactly, or when NewPath is empty but OriginalPath is not (writing an
-        empty value would delete the User PATH). Otherwise writes OriginalPath to the
-        User-scope BADPATH variable, User|<time> to BADPATH_SCOPE (the marker
-        Restore-PathFromBackup checks against PATH_FIX_DATE), the same time to
-        PATH_FIX_DATE, and then NewPath to the User-scope PATH. Outputs nothing. Private
-        to PathRepair.
+        Re-reads the raw User-scope PATH and its registry value kind, and throws, writing
+        nothing, unless the text still equals OriginalPath exactly and the kind still equals
+        OriginalKind (the preview checked %VAR% entries under that kind's expansion rule),
+        or when NewPath has no non-blank entry, such as '' or ';' (it would delete or empty the User PATH). Otherwise
+        writes OriginalPath to the User-scope BADPATH variable, User|<time> to BADPATH_SCOPE
+        (the marker Restore-PathFromBackup checks against PATH_FIX_DATE), the same time to
+        PATH_FIX_DATE, and then NewPath to the User-scope PATH. BADPATH and PATH are
+        written with the kind PATH had, so REG_EXPAND_SZ and its %VAR% text survive. Then
+        broadcasts the change with Send-EnvironmentChange, which only warns when it fails,
+        so a completed write is never reported as failed. Outputs nothing. Private to
+        PathRepair.
 
     .PARAMETER OriginalPath
         The User PATH the preview was computed from.
+
+    .PARAMETER OriginalKind
+        The registry value kind (String or ExpandString) the User PATH had when the
+        preview was computed, the OriginalKind of the Invoke-PathRepairCore result.
 
     .PARAMETER NewPath
         The repaired User PATH to write.
 
     .EXAMPLE
-        Write-RepairedPath -OriginalPath $plan.OriginalPath -NewPath 'C:\Tools;C:\Bin'
+        Write-RepairedPath -OriginalPath $plan.OriginalPath -OriginalKind $plan.OriginalKind -NewPath 'C:\Tools;C:\Bin'
 
     .EXAMPLE
-        Write-RepairedPath -OriginalPath 'C:\Bin;C:\Bin' -NewPath 'C:\Bin'
+        Write-RepairedPath -OriginalPath 'C:\Bin;C:\Bin' -OriginalKind String -NewPath 'C:\Bin'
 
     .NOTES
-        Windows only: the User environment scope is stored in the registry.
+        Windows only: the User environment scope is stored in the registry. The Machine
+        PATH is never written.
     #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$OriginalPath,
 
+        [Parameter(Mandatory = $true)]
+        [string]$OriginalKind,
+
         [AllowEmptyString()]
         [string]$NewPath
     )
 
-    $current = Read-EnvironmentVariable -Name 'PATH' -Target User
-    if ($current -cne $OriginalPath) {
+    $current = Read-UserEnvironmentValue -Name 'PATH'
+    if ($current.Value -cne $OriginalPath) {
         throw 'The User PATH changed since the preview; nothing written.'
     }
-    if ([string]::IsNullOrEmpty($NewPath)) {
+    # The kind decides whether %VAR% is expanded, which the preview's checks depended on.
+    if ([string]$current.Kind -cne $OriginalKind) {
+        throw "The User PATH changed since the preview (its value kind is now $($current.Kind), not $OriginalKind); nothing written."
+    }
+    # Only separators (';') or blanks would leave a User PATH with no entry at all.
+    if (@($NewPath -split ';' | Where-Object { ($_ -replace '"', '').Trim() }).Count -eq 0) {
         throw 'The repair would remove every User PATH entry; nothing written.'
     }
-    Write-EnvironmentVariable -Name 'BADPATH' -Value $OriginalPath -Target User
+    Write-UserEnvironmentValue -Name 'BADPATH' -Value $OriginalPath -Kind $current.Kind
     $fixDate = Get-Date -Format 'yyyy-MM-dd_HH:mm:ss'
-    Write-EnvironmentVariable -Name 'BADPATH_SCOPE' -Value "User|$fixDate" -Target User
-    Write-EnvironmentVariable -Name 'PATH_FIX_DATE' -Value $fixDate -Target User
-    Write-EnvironmentVariable -Name 'PATH' -Value $NewPath -Target User
+    Write-UserEnvironmentValue -Name 'BADPATH_SCOPE' -Value "User|$fixDate" -Kind String
+    Write-UserEnvironmentValue -Name 'PATH_FIX_DATE' -Value $fixDate -Kind String
+    Write-UserEnvironmentValue -Name 'PATH' -Value $NewPath -Kind $current.Kind
+    Send-EnvironmentChange
 }
 
 function Select-ApprovedPathChange {
@@ -313,15 +377,16 @@ function Get-PathRepairRemoteScriptBlock {
 
     .DESCRIPTION
         Returns a script block that defines Invoke-PathRepairCore, Write-RepairedPath and
-        the helpers they call (Read-EnvironmentVariable, Write-EnvironmentVariable,
-        Test-PathDirectory, Split-PathValue) from their current definitions. Its positional
-        arguments are Apply, FixTypes, OriginalPath and NewPath: with Apply $false it calls
+        the helpers they call (Read-UserEnvironmentValue, Write-UserEnvironmentValue,
+        Send-EnvironmentChange, Test-PathDirectory, Split-PathValue) from their current
+        definitions. Its positional
+        arguments are Apply, FixTypes, OriginalPath, NewPath and OriginalKind: with Apply $false it calls
         Invoke-PathRepairCore with SkipUnc $true, with Apply $true it calls
         Write-RepairedPath. Pass it to Invoke-Command with -ArgumentList. Private to
         PathRepair.
 
     .EXAMPLE
-        Invoke-Command -ComputerName PC01 -ScriptBlock (Get-PathRepairRemoteScriptBlock) -ArgumentList $false, @('Duplicates'), '', ''
+        Invoke-Command -ComputerName PC01 -ScriptBlock (Get-PathRepairRemoteScriptBlock) -ArgumentList $false, @('Duplicates'), '', '', ''
 
     .NOTES
         None.
@@ -330,13 +395,13 @@ function Get-PathRepairRemoteScriptBlock {
     [OutputType([scriptblock])]
     param ()
 
-    $names = 'Read-EnvironmentVariable', 'Write-EnvironmentVariable', 'Test-PathDirectory', 'Split-PathValue',
-        'Invoke-PathRepairCore', 'Write-RepairedPath'
+    $names = 'Read-UserEnvironmentValue', 'Write-UserEnvironmentValue', 'Send-EnvironmentChange', 'Test-PathDirectory',
+        'Split-PathValue', 'Invoke-PathRepairCore', 'Write-RepairedPath'
     $parts = foreach ($name in $names) {
         "function $name {`n$((Get-Command -Name $name -CommandType Function).ScriptBlock)`n}"
     }
-    $head = 'param([bool]$Apply, [string[]]$FixTypes, [string]$OriginalPath, [string]$NewPath)'
-    $tail = 'if ($Apply) { Write-RepairedPath -OriginalPath $OriginalPath -NewPath $NewPath } else { Invoke-PathRepairCore -FixTypes $FixTypes -SkipUnc $true }'
+    $head = 'param([bool]$Apply, [string[]]$FixTypes, [string]$OriginalPath, [string]$NewPath, [string]$OriginalKind)'
+    $tail = 'if ($Apply) { Write-RepairedPath -OriginalPath $OriginalPath -OriginalKind $OriginalKind -NewPath $NewPath } else { Invoke-PathRepairCore -FixTypes $FixTypes -SkipUnc $true }'
     [scriptblock]::Create((@($head) + @($parts) + $tail) -join "`n")
 }
 
@@ -367,6 +432,9 @@ function Invoke-PathRepairTarget {
     .PARAMETER OriginalPath
         With Apply: the User PATH the preview was computed from.
 
+    .PARAMETER OriginalKind
+        With Apply: the registry value kind the User PATH had in the preview.
+
     .PARAMETER NewPath
         With Apply: the repaired User PATH to write.
 
@@ -374,7 +442,7 @@ function Invoke-PathRepairTarget {
         Invoke-PathRepairTarget -FixTypes Duplicates
 
     .EXAMPLE
-        Invoke-PathRepairTarget -ComputerName PC01 -Apply -OriginalPath $plan.OriginalPath -NewPath $newPath
+        Invoke-PathRepairTarget -ComputerName PC01 -Apply -OriginalPath $plan.OriginalPath -OriginalKind $plan.OriginalKind -NewPath $newPath
 
     .NOTES
         The remote form needs PowerShell remoting (WinRM) on the target.
@@ -391,20 +459,22 @@ function Invoke-PathRepairTarget {
 
         [string]$OriginalPath,
 
+        [string]$OriginalKind,
+
         [AllowEmptyString()]
         [string]$NewPath
     )
 
     if (-not $ComputerName) {
         if ($Apply) {
-            return Write-RepairedPath -OriginalPath $OriginalPath -NewPath $NewPath
+            return Write-RepairedPath -OriginalPath $OriginalPath -OriginalKind $OriginalKind -NewPath $NewPath
         }
         return Invoke-PathRepairCore -FixTypes $FixTypes
     }
     $invokeParams = @{
         ComputerName = $ComputerName
         ScriptBlock  = Get-PathRepairRemoteScriptBlock
-        ArgumentList = @([bool]$Apply, $FixTypes, $OriginalPath, $NewPath)
+        ArgumentList = @([bool]$Apply, $FixTypes, $OriginalPath, $NewPath, $OriginalKind)
         ErrorAction  = 'Stop'
     }
     if ($Credential) {

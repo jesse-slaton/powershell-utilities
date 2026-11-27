@@ -8,13 +8,31 @@ function Repair-PathEntry {
         selected issue types, and asks ShouldProcess about each change, so -WhatIf lists
         every change without writing anything and -Confirm (or -Prompt) asks about each
         one. A declined change leaves that entry as it is. When at least one change is
-        approved, re-reads the User PATH and, only if it is unchanged since the preview,
-        saves it to the User-scope BADPATH variable (undo with Restore-PathFromBackup),
+        approved, re-reads the User PATH and, only if its text and its registry value kind
+        are both unchanged since the preview, saves it to the User-scope BADPATH variable (undo with Restore-PathFromBackup),
         sets PATH_FIX_DATE to the current time and BADPATH_SCOPE to User|<that time>
         (the marker Restore-PathFromBackup checks), and writes the
         User PATH with exactly the approved changes. It writes nothing, and reports an
-        error, when the User PATH changed in between or when the repair would leave it
-        empty. The Machine PATH is never read or changed.
+        error, when the User PATH text or value kind changed in between or when the repair would leave it
+        with no non-blank entry. The Machine PATH is never read or changed.
+
+        The User PATH and BADPATH are read from HKCU\Environment as written, without
+        expanding %VAR% references, and written back with the registry value kind PATH had,
+        so a REG_EXPAND_SZ PATH keeps its kind and its %USERPROFILE%-style entries. In a
+        REG_EXPAND_SZ PATH only the directory checks expand them, for the check alone, and
+        an entry whose variable this process cannot expand is never removed as
+        non-existent. An entry whose variable expands to several folders (a value holding
+        ';') is removed as non-existent only when none of them exists. Duplicates compares entries as written, so %USERPROFILE%\bin and its
+        expanded form are both kept.
+
+        Windows does not expand %VAR% in a REG_SZ PATH, so there such an entry is checked
+        as written. It is never removed as non-existent (the expanded folder is what was
+        meant): it is kept, and a warning names it and suggests making PATH REG_EXPAND_SZ,
+        even when a folder with that literal name exists. The value kind is never changed.
+
+        After a write, running programs are told about the change (a WM_SETTINGCHANGE
+        "Environment" broadcast). The write is already complete then, so a failed
+        broadcast is only a warning and the result still has Applied $true.
 
         Issue types:
         - UnbalancedQuotes: removes every double quote from an entry with an odd number
@@ -39,8 +57,9 @@ function Repair-PathEntry {
         Remote computer to repair through PowerShell remoting (Invoke-Command). Omit it to
         repair this computer. The module does not need to be installed there. A remote
         session cannot reach network shares or mapped drives (the second hop), so their
-        entries look missing: UNC (\\server\share) entries are never removed as
-        non-existent remotely, but mapped-drive entries are. Run with -WhatIf first.
+        entries look missing: UNC (\\server\share) entries, written out or reached through
+        a %VAR% that expands to one, are never removed as non-existent remotely, but
+        mapped-drive entries are. Run with -WhatIf first.
 
     .PARAMETER Credential
         Credential for the remote connection. Used only with ComputerName.
@@ -64,10 +83,8 @@ function Repair-PathEntry {
         remoting (WinRM) enabled on the target, and it repairs the User PATH of the
         account that connects.
 
-        Environment variables are read expanded and written as REG_SZ, on Windows
-        PowerShell 5.1 and PowerShell 7 alike, so %USERPROFILE%-style references in the
-        repaired User PATH and in BADPATH become fixed paths (the REG_EXPAND_SZ type is
-        lost). Tracked in issue #149.
+        On a remote computer the broadcast reaches only the remoting session, so the
+        user's own desktop sees the repaired PATH after the next sign-in.
 
         Known limitation: IncorrectSemicolons never matches. PATH is split first, so
         'C:\;dir' arrives as two entries, C:\ and dir, and the check sees each alone.
@@ -117,7 +134,7 @@ function Repair-PathEntry {
     $applied = $changes.Count -gt 0
     if ($applied) {
         try {
-            $null = Invoke-PathRepairTarget @targetParams -Apply -OriginalPath $preview.OriginalPath -NewPath $newPath
+            $null = Invoke-PathRepairTarget @targetParams -Apply -OriginalPath $preview.OriginalPath -OriginalKind $preview.OriginalKind -NewPath $newPath
         } catch {
             Write-Error "An error occurred while processing the $target`: $($_.Exception.Message)"
             return
