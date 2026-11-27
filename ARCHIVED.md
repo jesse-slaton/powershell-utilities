@@ -126,3 +126,16 @@ targeted is obsolete, or because they were unfinished demos. Last commit that ha
 | `Scripts/General/move_win10.ps1` | Moved a hard-coded list of computers into a staging OU for a past Windows 10 rollout (one-time migration). |
 | `Scripts/General/Test-MIAVC-Sensor.ps1` | Compared the installed VPN client version to a reference; hard-coded to one VPN client's 4.7 version (obsolete product, renamed since) and the comparison never matched. |
 | `Scripts/General/test-UIforPS7.ps1` | Throwaway demo window with a button that filled a text box; incomplete, with no function, and it depended on an unmaintained third-party UI toolkit. |
+
+## Retired scripts (#138, 2026-11)
+
+These scripts were retired because they were org-specific, because they cannot run as written,
+or because the product they targeted is obsolete. Last commit that has them: `4d4706693435`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/General/Create-PAXInstallShortCut.ps1` | Created a Desktop shortcut to an internally staged installer under a hard-coded support-tools folder (org-specific). |
+| `Scripts/General/Import-WindowsErrorCode.ps1` | Scraped Windows error codes from a retired documentation site into objects; it depended on removed DOM parsing and on that site's old page layouts. Get-WindowsErrorCodeInfo.ps1 covers the lookup use and stays. |
+| `Scripts/General/Set-URLInfoAbout-Package.ps1` | Rewrote uninstall-entry support links to one endpoint product's 8.5 documentation (obsolete product, org-specific deployment tweak). |
+| `Scripts/General/Show-ProcessTree-Sensor.ps1` | Unfinished sensor meant to print a process tree; a read-only `$pid` assignment and a broken filter made its output unusable. |
+| `Scripts/General/StuffedScopeArray.ps1` | Sensor mapping the primary adapter's subnet to a location using an internally staged location file under a hard-coded support-tools folder (org-specific). |
