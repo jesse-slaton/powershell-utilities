@@ -5,11 +5,12 @@
 **Cleanup in progress: modules built, retired scripts being archived**
 
 This repository was created from a reorganization of a monolithic PowerShell script collection.
-Every script has comment-based help, legacy WMI calls are replaced with CIM, and related scripts
-are consolidated into the modules below. Scripts that the PowerShell 7 inventory
-([MIGRATION.md](MIGRATION.md)) marks retire are now being archived (milestone M5), and behavior tests
-for the scripts that remain come next (M7); see the tracking issues [#2 (modules)](https://github.com/jesse-slaton/powershell-utilities/issues/2) and
-[#1 (tests and CI)](https://github.com/jesse-slaton/powershell-utilities/issues/1).
+Every script has comment-based help, legacy WMI calls are replaced with CIM, and the modules below
+are built from the related scripts (#2 stays open for its module acceptance checks). Scripts that
+the PowerShell 7 inventory ([MIGRATION.md](MIGRATION.md)) marks retire are now being archived
+(milestone M5), and behavior tests for the scripts that remain come next (M7); see the tracking
+issues [#2 (modules)](https://github.com/jesse-slaton/powershell-utilities/issues/2) and [#1 (tests
+and CI)](https://github.com/jesse-slaton/powershell-utilities/issues/1).
 
 > **Note**: Path Commander (the Windows PATH TUI manager) has been moved to its own repository:
 > https://github.com/jesse-slaton/cli-tools

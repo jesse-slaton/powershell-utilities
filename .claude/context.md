@@ -39,12 +39,14 @@ The repository owner requires assistance with:
 - **tanium-powershell**: Tanium-specific sensors and packages (see `.claude/context.md` there)
 
 ## Active Issues
-Tracking issues, each with one-PR sub-issues (milestones M1-M5):
-1. #1: Replace generated Pester stubs with real tests and CI
-2. #2: Consolidate related scripts into PowerShell modules
-3. #3: Modernize legacy Windows API usage (VBScript removal done; WMI to CIM remaining)
-4. #4: Add comment-based help to every script and module function
-5. #71: Remove organization-specific names and personal paths from the public tree
+Open milestones, each made of one-PR issues (M1-M4 are closed):
+- M5: Retire scripts - archive every script MIGRATION.md marks retire (#134-#144)
+- M6: Coding standards - enforce STANDARDS.md with PSScriptAnalyzer and AST checks (#151-#156)
+- M7: Pester behavior tests - real tests for the scripts that remain (#24-#37, #83)
+- M8: PowerShell 7 migration - drop the Windows PowerShell 5.1 CI leg (#145)
+
+Open tracking issues: #1 (real tests and CI, finished by M7) and #2 (modules; its module
+acceptance criteria are still open). #3 (WMI to CIM) and #4 (comment-based help) are complete.
 
 ---
-Last Updated: 2026-11-19
+Last Updated: 2026-11-26
