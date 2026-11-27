@@ -508,6 +508,25 @@ Describe 'Invoke-Smartctl (private)' {
         }
     }
 
+    It 'writes an error for exit bit 2 when no attribute table was printed' {
+        Mock smartctl -ModuleName StorageHealth { $global:LASTEXITCODE = 4; 'Read SMART Data failed: Input/output error' }
+        $result = InModuleScope StorageHealth { $out = Invoke-Smartctl -Device 'C:' -ErrorVariable err -ErrorAction SilentlyContinue; [pscustomobject]@{ Out = $out; Err = $err } }
+        $result.Out | Should -BeNullOrEmpty
+        "$($result.Err)" | Should -Match 'smartctl -A C: failed with exit code 4: Read SMART Data failed'
+    }
+
+    It 'returns the table for exit bit 2 when the attribute table was still printed' {
+        Mock smartctl -ModuleName StorageHealth {
+            $global:LASTEXITCODE = 4 + 32
+            'Warning! SMART Attribute Data Structure error: invalid SMART checksum.'
+            'ID# ATTRIBUTE_NAME          FLAG     VALUE WORST THRESH TYPE      UPDATED  WHEN_FAILED RAW_VALUE'
+            '  9 Power_On_Hours          0x0032   099   099   000    Old_age   Always       -       1234'
+        }
+        $result = InModuleScope StorageHealth { $out = Invoke-Smartctl -Device 'C:' -ErrorVariable err -ErrorAction SilentlyContinue; [pscustomobject]@{ Out = $out; Err = $err } }
+        @($result.Out).Count | Should -Be 3
+        $result.Err | Should -BeNullOrEmpty
+    }
+
     It 'writes an error when smartctl cannot open the device' {
         Mock smartctl -ModuleName StorageHealth { $global:LASTEXITCODE = 2; 'Smartctl open device: C: failed' }
         $result = InModuleScope StorageHealth { Invoke-Smartctl -Device 'C:' -ErrorVariable err -ErrorAction SilentlyContinue; $err }

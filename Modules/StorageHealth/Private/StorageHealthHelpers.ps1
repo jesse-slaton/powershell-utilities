@@ -52,8 +52,11 @@ function Invoke-Smartctl {
     .DESCRIPTION
         Runs smartctl (smartmontools) from PATH with -A and the device, and returns its
         output lines. smartctl's exit code is a bit mask: bits 0 and 1 (bad command line,
-        device could not be opened) write a non-terminating error; the other bits report
-        disk state, not a failure to read it, so they are ignored. Private to StorageHealth.
+        device could not be opened) write a non-terminating error. Bit 2 (a SMART or ATA
+        command failed, or a SMART data checksum was wrong) writes one too, unless the output
+        still holds the attribute table (its 'ID# ATTRIBUTE_NAME' header), which is then
+        returned. The higher bits report disk state, not a failure to read it, so they are
+        ignored. Private to StorageHealth.
 
     .PARAMETER Device
         The device to read, such as C: or /dev/sda.
@@ -79,8 +82,11 @@ function Invoke-Smartctl {
     )
 
     $output = @(& smartctl -A $Device)
-    if ($LASTEXITCODE -band 3) {
-        Write-Error -Message ("smartctl -A {0} failed with exit code {1}: {2}" -f $Device, $LASTEXITCODE, ($output -join ' '))
+    $exitCode = $LASTEXITCODE
+    # Bit 2 alone can still come with a usable table; without one the drive would be skipped silently.
+    $noTable = @($output -match '^\s*ID#\s+ATTRIBUTE_NAME').Count -eq 0
+    if (($exitCode -band 3) -or (($exitCode -band 4) -and $noTable)) {
+        Write-Error -Message ("smartctl -A {0} failed with exit code {1}: {2}" -f $Device, $exitCode, ($output -join ' '))
         return
     }
     $output
