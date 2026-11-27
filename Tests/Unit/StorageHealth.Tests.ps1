@@ -630,7 +630,7 @@ Describe 'Test-SSD' {
         Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasNominalMediaRotationRate' } { throw 'Access is denied' }
         Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasSeekPenalty' } { $false }
         Test-SSD -PhysicalDiskId 0 -Confirm:$false | Should -BeTrue
-        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasSeekPenalty' } { throw 'Access is denied' }
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasSeekPenalty' } { $true }
         Test-SSD -PhysicalDiskId 0 -Confirm:$false | Should -BeFalse
     }
 
@@ -638,6 +638,82 @@ Describe 'Test-SSD' {
         Mock Invoke-SsdNativeCheck -ModuleName StorageHealth { $DriveString -ne '\\.\PhysicalDrive2' }
         $result = @(0, 2 | Test-SSD -Confirm:$false)
         $result | Should -Be @($false, $true)
+    }
+
+    It 'writes one error naming the disk and both messages, and no output, when both checks fail' {
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasNominalMediaRotationRate' } { throw 'Rotation boom' }
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasSeekPenalty' } { throw 'Seek boom' }
+        $all = @(Test-SSD -PhysicalDiskId 3 -Confirm:$false 2>&1)
+        $result = @($all | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+        $errs = @($all | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+        $result.Count | Should -Be 0
+        $errs.Count | Should -Be 1
+        $errs[0].Exception.Message | Should -Match 'physical disk 3'
+        $errs[0].Exception.Message | Should -Match 'Rotation boom'
+        $errs[0].Exception.Message | Should -Match 'Seek boom'
+        $errs[0].CategoryInfo.Category | Should -Be 'ReadError'
+        $errs[0].FullyQualifiedErrorId | Should -Match 'TestSSD.BothChecksFailed'
+    }
+
+    It 'writes no error when only the <Failing> check fails' -ForEach @(
+        @{ Failing = 'rotation'; RotThrows = $true; SeekThrows = $false; Expected = $true }
+        @{ Failing = 'seek penalty'; RotThrows = $false; SeekThrows = $true; Expected = $true }
+    ) {
+        $rt = $RotThrows
+        $st = $SeekThrows
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasNominalMediaRotationRate' } { if ($rt) { throw 'x' } $false }
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth -ParameterFilter { $Check -eq 'HasSeekPenalty' } { if ($st) { throw 'x' } $false }
+        $all = @(Test-SSD -PhysicalDiskId 0 -Confirm:$false 2>&1)
+        $result = @($all | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+        $errs = @($all | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+        $result | Should -Be @($Expected)
+        $errs.Count | Should -Be 0
+    }
+
+    It 'keeps going after a disk whose checks both fail and outputs the others in order' {
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth {
+            if ($DriveString -eq '\\.\PhysicalDrive1') { throw "boom $Check" }
+            $DriveString -ne '\\.\PhysicalDrive2'
+        }
+        # The foreach gives a stray 'continue' in Test-SSD a loop to land on, so a
+        # return-to-continue regression fails here instead of skipping the assertions.
+        $all = @(foreach ($pass in 1) { 0, 1, 2 | Test-SSD -Confirm:$false 2>&1 })
+        $result = @($all | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+        $errs = @($all | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+        $result | Should -Be @($false, $true)
+        $errs.Count | Should -Be 1
+        $errs[0].Exception.Message | Should -Match 'physical disk 1'
+    }
+
+    It 'pins -ErrorAction Continue so a caller preference of <Preference> does not stop the pipeline' -ForEach @(
+        @{ Preference = 'Stop' }
+        @{ Preference = 'SilentlyContinue' }
+    ) {
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth {
+            if ($DriveString -eq '\\.\PhysicalDrive1') { throw "boom $Check" }
+            $true
+        }
+        # The pinned Write-Error -ErrorAction Continue wins over the caller's -ErrorAction
+        # for the Write-Error call itself, so the error stays non-terminating and the error
+        # stream still receives it; the later disk is still processed.
+        $all = @(foreach ($pass in 1) { 0, 1, 2 | Test-SSD -Confirm:$false -ErrorAction $Preference 2>&1 })
+        $result = @($all | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+        $errs = @($all | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+        $result | Should -Be @($false, $false)
+        $errs.Count | Should -Be 1
+    }
+
+    It 'reports the underlying failure text, not the method-call wrapper, when both checks fail' {
+        Mock Invoke-SsdNativeCheck -ModuleName StorageHealth {
+            $inner = [System.ComponentModel.Win32Exception]::new("Incorrect function.`r`n")
+            throw [System.Management.Automation.MethodInvocationException]::new(
+                "Exception calling `"$Check`" with `"1`" argument(s): `"Incorrect function.`"", $inner)
+        }
+        $errs = @(Test-SSD -PhysicalDiskId 4 -Confirm:$false 2>&1 |
+            Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+        $errs.Count | Should -Be 1
+        $errs[0].Exception.Message | Should -BeExactly ('Cannot determine whether physical disk 4 is an SSD: both checks failed. ' +
+            'HasNominalMediaRotationRate: Incorrect function.; HasSeekPenalty: Incorrect function.')
     }
 
     It 'calls nothing and reports a spinning disk for each disk under -WhatIf' {
