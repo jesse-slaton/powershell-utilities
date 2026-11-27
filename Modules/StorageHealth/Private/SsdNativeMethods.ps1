@@ -365,3 +365,41 @@ function Invoke-SsdNativeCheck {
         [Util.DetectSSD]::HasNominalMediaRotationRate($DriveString)
     }
 }
+
+function Get-SsdFailureMessage {
+    <#
+    .SYNOPSIS
+        Returns the text of a failed SSD check, without PowerShell's method-call wrapper.
+
+    .DESCRIPTION
+        A failed Util.DetectSSD call reaches PowerShell as a MethodInvocationException whose
+        message repeats the method name ("Exception calling "HasSeekPenalty" with "1"
+        argument(s): ..."). This returns the inner exception's message when there is one,
+        otherwise the exception's own message, with surrounding white space removed (Win32
+        system messages end in a line break). Private to StorageHealth.
+
+    .PARAMETER ErrorRecord
+        The error record caught from Invoke-SsdNativeCheck.
+
+    .EXAMPLE
+        try { Invoke-SsdNativeCheck -Check HasSeekPenalty -DriveString '\\.\PhysicalDrive9' }
+        catch { Get-SsdFailureMessage -ErrorRecord $_ }
+
+        Returns the reason the seek-penalty check failed for disk 9.
+
+    .OUTPUTS
+        System.String.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord
+    )
+
+    $exception = $ErrorRecord.Exception
+    if ($null -ne $exception.InnerException) {
+        $exception = $exception.InnerException
+    }
+    "$($exception.Message)".Trim()
+}
