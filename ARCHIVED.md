@@ -155,3 +155,18 @@ because they were broken. Last commit that has them: `14ab2eda3e19`.
 | `Scripts/Network/Protect Privacy-Package.ps1` | Applied a Windows 10 1709-era set of privacy tweaks to registry, tasks and services; now handled by policy (obsolete product). |
 | `Scripts/Network/Revert Changes.ps1` | Partial undo of the retired debloat and privacy scripts (obsolete product). |
 | `Scripts/Network/Fix Whitelisted Apps-Sensor.ps1` | Meant to re-register a few preinstalled apps, but its if test was never true on a normal system, so it did nothing; it also targeted a discontinued preinstalled app (broken/incomplete). |
+
+## Retired scripts (#140, 2026-11)
+
+These scripts were retired because they were broken or incomplete, superseded, one-time
+migrations, or targeted an obsolete product. Last commit that has them: `6944d130da9e`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/Network/ExportandUploadApplicationCrashEvtxToS3Bucket.ps1` | Exported 7 days of application crash events and meant to upload them to a remote bucket; the zip step always failed, so nothing was ever uploaded (broken/incomplete, near-duplicate of the Security variant). |
+| `Scripts/Network/ExportandUploadSecurityEvtxToS3Bucket.ps1` | Exported 7 days of the Security log and meant to upload it to a remote bucket; the zip step always failed, so nothing was ever uploaded (broken/incomplete, near-duplicate of the crash-event variant). |
+| `Scripts/Network/WPRtoS3Upload.ps1` | Meant to install the recorder, record 5 minutes and upload the zip to a remote bucket; it never produced an ETL file (superseded by StartWPRSession-Sensor.ps1). |
+| `Scripts/Network/TestRestoreScript.ps1` | Wrote a sample backup JSON for an external restore script that is not in this repository (orphan test fixture, broken/incomplete). |
+| `Scripts/Network/Get-ScopeDetails-Sensor.ps1` | Collected active DHCP scopes and option 1 values, but wrote nothing to the pipeline despite its sensor name and hard-coded an internal server exclusion (broken/incomplete). |
+| `Scripts/Network/Set-DhcpNetBiosOverTcpIpOption.ps1` | Set DHCP vendor option 1 on all servers to disable NetBIOS; a one-time fleet-wide migration with a hard-coded internal server exclusion. |
+| `Scripts/Network/Remove Bloatware RegKeys.ps1` | Deleted leftover class-registration keys for specific preinstalled-app package versions pinned to a 2017-era release that no longer exists (obsolete product). |

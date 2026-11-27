@@ -36,7 +36,6 @@ These scripts were previously included but have been archived. Reference from or
 
 Modules required by individual scripts:
 - ActiveDirectory
-- AWSPowerShell
 - TaniumClient
 - GroupPolicy
 - PSWindowsUpdate

@@ -105,12 +105,6 @@ is set in `BeforeDiscovery` (`$IsWindows` does not exist on Windows PowerShell 5
 # Install the pinned test modules (Pester 5.6.1, PSScriptAnalyzer 1.23.0). Uses Install-PSResource,
 # and falls back to Install-Module only on Windows PowerShell 5.1 without PSResourceGet.
 . ./Tests/Install-TestDependencies.ps1
-
-# For specific scripts, you may also need:
-# AWSPowerShell, for the S3 upload scripts. Those scripts run only in Windows PowerShell 5.1
-# (AWSPowerShell is Desktop-only and they call Get-EventLog), where Install-PSResource is not
-# available by default:
-#   Install-Module AWSPowerShell -Repository PSGallery -Scope CurrentUser
 # ActiveDirectory ships with RSAT, not the PowerShell Gallery.
 ```
 
