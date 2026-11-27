@@ -40,8 +40,11 @@ The repository owner requires assistance with:
 
 ## Active Issues
 Open milestones, each made of one-PR issues (M1-M4 are closed):
-- M5: Retire scripts - archive every script MIGRATION.md marks retire (#134-#144)
-- M6: Coding standards - enforce STANDARDS.md with PSScriptAnalyzer and AST checks (#151-#156)
+- M5: Retire scripts - 12 of 13 done. #134-#144 archived every script MIGRATION.md marked retire,
+  and #192 cleaned up the external-repo list. Only #191 remains, blocked on the tanium-powershell
+  imports (#52-#54); do not start it until those land.
+- M6: Coding standards - enforce STANDARDS.md with PSScriptAnalyzer and AST checks (#151-#156),
+  plus #193 (search-hostile characters) and #194 (shared logger).
 - M7: Pester behavior tests - real tests for the scripts that remain (#24-#37, #83)
 - M8: PowerShell 7 migration - drop the Windows PowerShell 5.1 CI leg (#145)
 
@@ -49,4 +52,4 @@ Open tracking issues: #1 (real tests and CI, finished by M7) and #2 (modules; it
 acceptance criteria are still open). #3 (WMI to CIM) and #4 (comment-based help) are complete.
 
 ---
-Last Updated: 2026-11-26
+Last Updated: 2026-11-27
