@@ -204,3 +204,16 @@ or log paths. Last commit that has them: `0f8d15f407fe`.
 | `Scripts/System/Remove_All_Versions_of_Microstrategy-Package.ps1` | Silently uninstalled every version of an analytics platform's deployment package; org-specific, with hard-coded internal tooling log paths and broken multi-match logic. |
 | `Scripts/System/Remove_All_Versions_of_TM1_Add-in_for_Excel.ps1` | Uninstalled a planning add-in for spreadsheet software and its leftovers; org-specific, a one-vendor removal package for an internal deployment with hard-coded install paths. |
 | `Scripts/System/Remove_All_Versions_of_Zoom_Outlook_Plugin-Package.ps1` | Silently uninstalled every version of a conferencing product's mail-client plugin; the vendor retired the plugin in favour of an add-in, and the script hard-coded internal log paths. |
+
+## Retired scripts (#144, 2026-11)
+
+These scripts were retired because they are organization-specific or broken/incomplete, and they
+hard-code internal computer names, registry keys, tooling log paths, or VPN settings. Last commit
+that has them: `b526c9d88c5b`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/System/getfailedinstalllogs.ps1` | Listed non-empty install logs and probed one hard-coded internal host; org-specific, with a hard-coded internal computer name and an internal tooling log path. |
+| `Scripts/System/HWImageInfoSensor.ps1` | Reported imaging details from a registry key written only by an internal imaging process (org-specific). |
+| `Scripts/System/parseCBSCSV.ps1` | Converted a parsed servicing CSV into pipe-delimited age lines; broken/incomplete, it consumed a hard-coded CSV produced by a parser that is not in this repository. |
+| `Scripts/System/SetBackupServerHostAddresses.ps1` | Rewrote the backup server list in VPN client profiles; org-specific, with hard-coded organization match text and a VPN host list, targeting a pre-rename VPN client profile folder. |
