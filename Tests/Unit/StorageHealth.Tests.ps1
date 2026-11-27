@@ -16,13 +16,33 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '../TestHelpers.psm1') -Force
     Register-CommandStub -Name Get-CimInstance -Parameter ClassName, Namespace, Filter
     Register-CommandStub -Name Invoke-CimMethod -Parameter ClassName, Namespace, MethodName, Arguments
-    Register-CommandStub -Name vssadmin
+    Register-CommandStub -Name vssadmin, smartctl
+    Register-CommandStub -Name Get-Disk -Parameter Number
+    Register-CommandStub -Name Get-Partition -Parameter DriveLetter
     Import-Module (Join-Path $repoRoot 'Modules/StorageHealth/StorageHealth.psd1') -Force
+
+    function New-SmartBuffer {
+        # A 512-byte MSStorageDriver_FailurePredictData VendorSpecific buffer: 2 header bytes, then
+        # one 12-byte record per attribute ID in $Values (ID, 2 flags, value, worst, 6 raw, reserved).
+        param([System.Collections.IDictionary]$Values)
+        $buffer = New-Object byte[] 512
+        $offset = 2
+        # GetEnumerator, not $Values[$id]: an int key on an ordered dictionary indexes by position.
+        foreach ($entry in $Values.GetEnumerator()) {
+            $buffer[$offset] = [byte]$entry.Key
+            $buffer[$offset + 1] = 0x33
+            $buffer[$offset + 3] = [byte]$entry.Value
+            $buffer[$offset + 4] = [byte]$entry.Value
+            $buffer[$offset + 5] = 7
+            $offset += 12
+        }
+        , $buffer
+    }
 }
 
 AfterAll {
     Remove-Module -Name StorageHealth -Force -ErrorAction SilentlyContinue
-    Remove-CommandStub -Name Get-CimInstance, Invoke-CimMethod, vssadmin
+    Remove-CommandStub -Name Get-CimInstance, Invoke-CimMethod, vssadmin, smartctl, Get-Disk, Get-Partition
 }
 
 Describe 'Get-LastShadowCopyDate' {
@@ -341,5 +361,231 @@ Describe 'Get-ShadowStorageMaxSize' {
         (Get-ShadowStorageMaxSize).MaxSpaceGB | Should -Be 50
         Should -Invoke Invoke-Wow64CimQuery -ModuleName StorageHealth -Times 1 -Exactly
         Should -Invoke Get-CimInstance -ModuleName StorageHealth -Times 0 -Exactly -ParameterFilter { $ClassName -eq 'Win32_ShadowStorage' }
+    }
+}
+
+Describe 'ConvertFrom-SmartVendorSpecific (private)' {
+    It 'returns one record per used slot, each with its own fields' {
+        $buffer = New-SmartBuffer -Values ([ordered]@{ 5 = 100; 197 = 98 })
+        $buffer[2 + 12 + 10] = 9
+        $result = @(InModuleScope StorageHealth -Parameters @{ Buffer = $buffer } { param($Buffer) ConvertFrom-SmartVendorSpecific -VendorSpecific $Buffer })
+        $result.Count | Should -Be 2
+        @($result.AttrID) | Should -Be @(5, 197)
+        @($result.AttrValue) | Should -Be @(100, 98)
+        $result[0].StatusFlag1 | Should -Be 0x33
+        $result[1].Raws | Should -Be @(7, 0, 0, 0, 0, 9)
+    }
+
+    It 'ignores bytes past the 30-entry attribute table' {
+        $buffer = New-SmartBuffer -Values ([ordered]@{ 9 = 99 })
+        $buffer[2 + 30 * 12] = 200
+        $result = @(InModuleScope StorageHealth -Parameters @{ Buffer = $buffer } { param($Buffer) ConvertFrom-SmartVendorSpecific -VendorSpecific $Buffer })
+        @($result.AttrID) | Should -Be @(9)
+    }
+
+    It 'returns nothing for an empty buffer' {
+        InModuleScope StorageHealth { ConvertFrom-SmartVendorSpecific -VendorSpecific @() } | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Get-SmartAttribute' {
+    BeforeEach {
+        Mock Test-IsAdministrator -ModuleName StorageHealth { $true }
+        Mock Get-CimInstance -ModuleName StorageHealth -ParameterFilter { $ClassName -eq 'MSStorageDriver_FailurePredictData' } {
+            [pscustomobject]@{ InstanceName = 'DISK_A_0'; VendorSpecific = (New-SmartBuffer -Values ([ordered]@{ 5 = 100; 194 = 40 })) }
+            [pscustomobject]@{ InstanceName = 'DISK_B_0'; VendorSpecific = (New-SmartBuffer -Values ([ordered]@{ 9 = 95 })) }
+        }
+    }
+
+    It 'returns each disk''s attributes labeled with the disk' {
+        $result = @(Get-SmartAttribute)
+        $result.Count | Should -Be 3
+        @($result | ForEach-Object { '{0}:{1}={2}' -f $_.InstanceName, $_.AttrID, $_.AttrValue }) |
+            Should -Be @('DISK_A_0:5=100', 'DISK_A_0:194=40', 'DISK_B_0:9=95')
+        Should -Invoke Get-CimInstance -ModuleName StorageHealth -Times 1 -Exactly -ParameterFilter { $Namespace -eq 'root\WMI' }
+    }
+
+    It 'throws in a session that is not elevated instead of relaunching powershell.exe' {
+        Mock Test-IsAdministrator -ModuleName StorageHealth { $false }
+        Mock Start-Process -ModuleName StorageHealth { }
+        { Get-SmartAttribute } | Should -Throw '*elevated*'
+        Should -Invoke Start-Process -ModuleName StorageHealth -Times 0 -Exactly
+        Should -Invoke Get-CimInstance -ModuleName StorageHealth -Times 0 -Exactly
+    }
+}
+
+Describe 'Get-DriveHealth -Source Wmi' {
+    BeforeEach {
+        Mock Get-Disk -ModuleName StorageHealth {
+            [pscustomobject]@{ FriendlyName = 'Disk A'; SerialNumber = 'SN-A'; BusType = 'SATA'; FirmwareVersion = '1.0'; Path = '\\?\scsi#disk&ven_a#4&aaa&0&000000#{53f56307}' }
+            [pscustomobject]@{ FriendlyName = 'Disk B'; SerialNumber = 'SN-B'; BusType = 'NVMe'; FirmwareVersion = '2.0'; Path = '\\?\scsi#disk&ven_b#4&bbb&0&000100#{53f56307}' }
+            [pscustomobject]@{ FriendlyName = 'Disk C'; SerialNumber = 'SN-C'; BusType = 'SATA'; FirmwareVersion = '3.0'; Path = '\\?\scsi#disk&ven_c#4&ccc&0&000200#{53f56307}' }
+            [pscustomobject]@{ FriendlyName = 'Virtual'; SerialNumber = 'SN-V'; BusType = 'File Backed Virtual'; FirmwareVersion = '0'; Path = '\\?\scsi#disk&ven_v#4&vvv&0&000300#{53f56307}' }
+        }
+        Mock Get-CimInstance -ModuleName StorageHealth -ParameterFilter { $ClassName -eq 'MSStorageDriver_FailurePredictData' } {
+            [pscustomobject]@{ InstanceName = 'SCSI\Disk&Ven_A\4&aaa&0&000000_0'; VendorSpecific = (New-SmartBuffer -Values ([ordered]@{ 5 = 100; 9 = 50; 187 = 99; 188 = 98; 197 = 97; 198 = 96 })) }
+            [pscustomobject]@{ InstanceName = 'SCSI\Disk&Ven_B\4&bbb&0&000100_0'; VendorSpecific = (New-SmartBuffer -Values ([ordered]@{ 5 = 80; 187 = 70 })) }
+            [pscustomobject]@{ InstanceName = 'SCSI\Disk&Ven_V\4&vvv&0&000300_0'; VendorSpecific = (New-SmartBuffer -Values ([ordered]@{ 5 = 1 })) }
+        }
+    }
+
+    It 'puts each attribute''s own value in its column' {
+        $a = @(Get-DriveHealth) | Where-Object SerialNumber -eq 'SN-A'
+        @($a.ReallocatedSectorsCount, $a.ReportedUncorrectableErrors, $a.CommandTimeout, $a.CurrentPendingSectorCount, $a.UncorrectableSectorCount) |
+            Should -Be @(100, 99, 98, 97, 96)
+        @($a.FriendlyName, $a.BusType, $a.FirmwareVersion) | Should -Be @('Disk A', 'SATA', '1.0')
+        $a.DriveLetter | Should -BeNullOrEmpty
+    }
+
+    It 'leaves an attribute the disk does not report empty instead of carrying it over' {
+        $b = @(Get-DriveHealth) | Where-Object SerialNumber -eq 'SN-B'
+        @($b.ReallocatedSectorsCount, $b.ReportedUncorrectableErrors) | Should -Be @(80, 70)
+        $b.CommandTimeout | Should -BeNullOrEmpty
+        $b.UncorrectableSectorCount | Should -BeNullOrEmpty
+    }
+
+    It 'returns objects only for listed bus types with SMART data' {
+        @(Get-DriveHealth | ForEach-Object SerialNumber) | Should -Be @('SN-A', 'SN-B')
+    }
+}
+
+Describe 'Get-DriveHealth -Source Smartctl' {
+    BeforeAll {
+        $smartctlC = @(
+            'smartctl 7.4 2023-08-01 r5530 [x86_64-w64-mingw32-w10-22H2] (sf-7.4-1)'
+            'ID# ATTRIBUTE_NAME          FLAG     VALUE WORST THRESH TYPE      UPDATED  WHEN_FAILED RAW_VALUE'
+            '  5 Reallocated_Sector_Ct   0x0033   100   100   010    Pre-fail  Always       -       0'
+            '187 Reported_Uncorrect      0x0032   099   099   000    Old_age   Always       -       1'
+            '188 Command_Timeout         0x0032   098   098   000    Old_age   Always       -       2'
+            '197 Current_Pending_Sector  0x0012   097   097   000    Old_age   Always       -       3'
+            '198 Offline_Uncorrectable   0x0010   096   096   000    Old_age   Offline      -       4'
+        )
+        $smartctlD = @(
+            '  5 Reallocated_Sector_Ct   0x0033   090   090   010    Pre-fail  Always       -       12'
+        )
+    }
+
+    BeforeEach {
+        Mock Get-CimInstance -ModuleName StorageHealth -ParameterFilter { $ClassName -eq 'Win32_LogicalDisk' } {
+            [pscustomobject]@{ DeviceID = 'C:' }
+            [pscustomobject]@{ DeviceID = 'D:' }
+            [pscustomobject]@{ DeviceID = 'E:' }
+        }
+        Mock Invoke-Smartctl -ModuleName StorageHealth -ParameterFilter { $Device -eq 'C:' } { $smartctlC }
+        Mock Invoke-Smartctl -ModuleName StorageHealth -ParameterFilter { $Device -eq 'D:' } { $smartctlD }
+        Mock Invoke-Smartctl -ModuleName StorageHealth -ParameterFilter { $Device -eq 'E:' } { 'Read SMART Data failed' }
+        Mock Get-Partition -ModuleName StorageHealth { [pscustomobject]@{ DiskNumber = [int][char]"$DriveLetter" - [int][char]'C' } }
+        Mock Get-Disk -ModuleName StorageHealth { [pscustomobject]@{ FriendlyName = "Disk $Number"; SerialNumber = "SN-$Number"; BusType = 'SATA'; FirmwareVersion = '1.0' } }
+    }
+
+    It 'reports every fixed drive with attributes, not only the last one' {
+        $result = @(Get-DriveHealth -Source Smartctl)
+        @($result.DriveLetter) | Should -Be @('C:', 'D:')
+        Should -Invoke Get-CimInstance -ModuleName StorageHealth -Times 1 -Exactly -ParameterFilter { $Filter -eq 'DriveType=3' }
+    }
+
+    It 'reads the VALUE column of each attribute and the disk details once per drive' {
+        $result = @(Get-DriveHealth -Source Smartctl)
+        $c = $result[0]
+        @($c.ReallocatedSectorsCount, $c.ReportedUncorrectableErrors, $c.CommandTimeout, $c.CurrentPendingSectorCount, $c.UncorrectableSectorCount) |
+            Should -Be @(100, 99, 98, 97, 96)
+        @($c.FriendlyName, $c.SerialNumber) | Should -Be @('Disk 0', 'SN-0')
+        $d = $result[1]
+        @($d.ReallocatedSectorsCount, $d.SerialNumber) | Should -Be @(90, 'SN-1')
+        $d.ReportedUncorrectableErrors | Should -BeNullOrEmpty
+        Should -Invoke Get-Partition -ModuleName StorageHealth -Times 2 -Exactly
+    }
+}
+
+Describe 'Invoke-Smartctl (private)' {
+    It 'returns the output for a disk-state exit bit and passes -A and the device' {
+        Mock smartctl -ModuleName StorageHealth { $global:LASTEXITCODE = 32; 'attribute table' }
+        InModuleScope StorageHealth { Invoke-Smartctl -Device 'C:' } | Should -Be 'attribute table'
+        Should -Invoke smartctl -ModuleName StorageHealth -Times 1 -Exactly -ParameterFilter {
+            # A stub on macOS and Linux collects the arguments in StubRemainingArguments; a real
+            # smartctl gets them in $args.
+            ((@($args) + @($StubRemainingArguments) | Where-Object { $_ }) -join " ") -eq "-A C:"
+        }
+    }
+
+    It 'writes an error when smartctl cannot open the device' {
+        Mock smartctl -ModuleName StorageHealth { $global:LASTEXITCODE = 2; 'Smartctl open device: C: failed' }
+        $result = InModuleScope StorageHealth { Invoke-Smartctl -Device 'C:' -ErrorVariable err -ErrorAction SilentlyContinue; $err }
+        "$result" | Should -Match 'smartctl -A C: failed with exit code 2'
+    }
+}
+
+Describe 'Test-IsAdministrator (private)' {
+    It 'returns a boolean on Windows' -Skip:($env:OS -ne 'Windows_NT') {
+        InModuleScope StorageHealth { Test-IsAdministrator } | Should -BeOfType [bool]
+    }
+}
+
+Describe 'Get-DriveHealthStats2-Sensor.ps1 wrapper' {
+    BeforeAll {
+        $sensor = Join-Path $repoRoot 'Scripts/FileSystem/Get-DriveHealthStats2-Sensor.ps1'
+    }
+
+    It 'prints one eight-field sensor-error line and exits 1 when StorageHealth cannot be loaded' {
+        # Runs the real sensor, copied to a folder with no Modules beside it, in a child
+        # PowerShell whose PSModulePath holds no StorageHealth. Mirrors a pasted sensor body.
+        $folder = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $folder
+        $copy = Join-Path $folder 'Get-DriveHealthStats2-Sensor.ps1'
+        Copy-Item -LiteralPath $sensor -Destination $copy
+        $powershell = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+        $output = @(& $powershell -NoProfile -Command "`$env:PSModulePath = '$folder'; & '$copy'; exit `$LASTEXITCODE" 2>$null)
+        $LASTEXITCODE | Should -Be 1
+        $output.Count | Should -Be 1
+        $output[0] | Should -Match '^StorageHealth module not found\|Sensor error\|'
+        $output[0].Split('|').Count | Should -Be 8 -Because 'an error line has the same columns as a drive line'
+    }
+
+    Context 'with a stub StorageHealth module' {
+        BeforeAll {
+            # Runs the real sensor, copied away from the repository's Modules folder, against a
+            # stub StorageHealth found first on PSModulePath, so Get-DriveHealth's behavior is set.
+            function Invoke-SensorWithStub {
+                param([string]$GetDriveHealthBody)
+                $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+                $moduleFolder = Join-Path $root 'StorageHealth'
+                $null = New-Item -ItemType Directory -Path $moduleFolder
+                Set-Content -LiteralPath (Join-Path $moduleFolder 'StorageHealth.psm1') -Value (
+                    "function Get-DriveHealth { [CmdletBinding()] param([string]`$Source) $GetDriveHealthBody }")
+                $copy = Join-Path $root 'Get-DriveHealthStats2-Sensor.ps1'
+                Copy-Item -LiteralPath $sensor -Destination $copy
+                $powershell = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+                $command = "`$env:PSModulePath = '$root' + [IO.Path]::PathSeparator + `$env:PSModulePath; & '$copy'; exit `$LASTEXITCODE"
+                $output = @(& $powershell -NoProfile -Command $command 2>$null)
+                [pscustomobject]@{ Output = $output; ExitCode = $LASTEXITCODE }
+            }
+            $goodDrive = "[pscustomobject]@{ DriveLetter = 'C:'; FriendlyName = 'Disk0'; SerialNumber = 'S0'; " +
+                "ReallocatedSectorsCount = 100; ReportedUncorrectableErrors = 99; CommandTimeout = 98; " +
+                "CurrentPendingSectorCount = 97; UncorrectableSectorCount = 96 }"
+        }
+
+        It 'prints each drive and exits 0 when every drive is read' {
+            $result = Invoke-SensorWithStub -GetDriveHealthBody $goodDrive
+            $result.ExitCode | Should -Be 0
+            $result.Output | Should -Be @('C:|Disk0|S0|100|99|98|97|96')
+        }
+
+        It 'still prints the readable drives, then an error line per unreadable drive, and exits 1' {
+            $result = Invoke-SensorWithStub -GetDriveHealthBody (
+                "$goodDrive; Write-Error 'smartctl -A D: failed with exit code 2: open failed'")
+            $result.ExitCode | Should -Be 1
+            $result.Output.Count | Should -Be 2
+            $result.Output[0] | Should -Be 'C:|Disk0|S0|100|99|98|97|96'
+            $result.Output[1] | Should -Match '^Drive health could not be read\|Sensor error\|smartctl -A D: failed'
+            $result.Output[1].Split('|').Count | Should -Be 8
+        }
+
+        It 'prints one error line and exits 1 when the drive list cannot be read at all' {
+            $result = Invoke-SensorWithStub -GetDriveHealthBody "throw 'Get-Partition is not available'"
+            $result.ExitCode | Should -Be 1
+            $result.Output.Count | Should -Be 1
+            $result.Output[0] | Should -Match '^Drive health could not be read\|Sensor error\|Get-Partition is not available'
+            $result.Output[0].Split('|').Count | Should -Be 8
+        }
     }
 }
