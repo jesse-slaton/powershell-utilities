@@ -8,7 +8,7 @@
     CompatiblePSEditions = @('Desktop', 'Core')
     RequiredModules      = @()
     FunctionsToExport    = @('Enable-SystemDriveRestore', 'Get-DriveHealth', 'Get-LastShadowCopyDate', 'Get-ShadowStorageMaxSize',
-        'Get-SmartAttribute', 'Test-ShadowCopy')
+        'Get-SmartAttribute', 'Test-ShadowCopy', 'Test-SSD')
     CmdletsToExport      = @()
     VariablesToExport    = @()
     AliasesToExport      = @()
