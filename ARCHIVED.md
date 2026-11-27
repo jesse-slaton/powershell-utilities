@@ -114,3 +114,15 @@ written, or because the product they targeted is gone. Last commit that has them
 | `Scripts/General/ArchTest-Package.ps1` | Template stub whose only real logic was a relaunch pinned to Windows PowerShell 5.1; the body was a placeholder. |
 | `Scripts/General/Find-Hack-Run-Sensor.ps1` | Listed a suspicious file name and hash in users' legacy browser cache folder (obsolete product, that browser is retired). |
 | `Scripts/General/GetBetaVersions.ps1` | Unfinished stub that parsed a release-history page with an unmaintained third-party library loaded from a personal hard-coded path; it produced no output. |
+
+## Retired scripts (#137, 2026-11)
+
+These scripts were retired because they were one-time migrations, because the product they
+targeted is obsolete, or because they were unfinished demos. Last commit that has them:
+`dff278add585`.
+
+| Path | What it did |
+|---|---|
+| `Scripts/General/move_win10.ps1` | Moved a hard-coded list of computers into a staging OU for a past Windows 10 rollout (one-time migration). |
+| `Scripts/General/Test-MIAVC-Sensor.ps1` | Compared the installed VPN client version to a reference; hard-coded to one VPN client's 4.7 version (obsolete product, renamed since) and the comparison never matched. |
+| `Scripts/General/test-UIforPS7.ps1` | Throwaway demo window with a button that filled a text box; incomplete, with no function, and it depended on an unmaintained third-party UI toolkit. |
